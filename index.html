@@ -63,8 +63,8 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id);
-const cv=$('game'),ctx=cv.getContext('2d'),stage=$('stage');
-let W=320,H=180,GY=132,G;
+const cv=$('game'),stage=$('stage'),ppl=document.createElement('canvas'),pctx=ppl.getContext('2d');
+let ctx=cv.getContext('2d'),W=320,H=180,GY=132,G;
 const WORLD=1400,DAY_LEN=100,FIRE_X=765,TOWN=[500,960];
 const clamp=(v,a,b)=>v<a?a:v>b?b:v,rnd=(a,b)=>a+Math.random()*(b-a);
 const hash=n=>{n=Math.sin(n*127.1+3.7)*43758.5453;return n-Math.floor(n);};
@@ -248,8 +248,7 @@ function hint(k,again,txt){
 }
 let hudCoins=-1,hudDay=-1;
 function hud(){
-  if(hudCoins!==G.player.coins){hudCoins=G.player.coins;$('coins').textContent=hudCoins;}
-  if(hudDay!==G.day){hudDay=G.day;$('day').textContent='Day '+hudDay;}
+  if(hudCoins!==G.player.coins){hudCoins=G.player.coins;$('coins').textContent=hudCoins;}if(hudDay!==G.day){hudDay=G.day;$('day').textContent='Day '+hudDay;}
 }
 
 // ---------- time of day
@@ -887,15 +886,16 @@ function draw(){
   ctx.globalAlpha=1;
   // golden hour, then night in two coats so people stay readable against the dark town
   const coat=(col,a)=>{if(a<=0)return;ctx.globalCompositeOperation='source-atop';ctx.fillStyle=`rgba(${col},${a})`;ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';};
-  coat('255,120,50',.2*warmth(G.t));coat('16,14,54',.5*dark);
+  coat('255,120,50',.2*warmth(G.t));coat('16,14,54',.65*dark);
+  // lit windows go on first so nobody walks behind the glass; people get their own layer and a lighter coat of night
+  const la=clamp(dark*1.4,0,1),main=ctx;
+  for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
+  ctx=pctx;ctx.clearRect(0,0,W,H);
   for(const d of G.drifters)person(Math.round(d.x-cam),d,'drifter');
   for(const f of G.folk)if(!f.hidden)person(Math.round(f.x-cam),f,f.role);
   for(const q of G.bandits)person(Math.round(q.x-cam),q,'bandit');
   if(G.state==='play')drawHorse(p.x-cam,p);
-  coat('16,14,54',.3*dark);
-  // lights
-  const la=clamp(dark*1.4,0,1);
-  for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
+  coat('16,14,54',.3*dark);ctx=main;ctx.drawImage(ppl,0,0);
   drawFire(FIRE_X-cam,0);drawFire(G.camps[0].x-cam,2);drawFire(G.camps[1].x-cam,4);
   for(const q of G.parts){
     if(!q.lit)continue;
@@ -947,7 +947,7 @@ function resize(){
   const ch=tall?Math.min(sh,clamp(sh-210,sw/1.25,sw*1.5)):sh;
   const sc=tall?Math.max(1,Math.round(sw*dpr/200)):Math.max(1,Math.round(ch*dpr/170),Math.ceil(sw*dpr/480));
   W=Math.ceil(sw*dpr/sc);H=Math.ceil(ch*dpr/sc);GY=H-clamp(Math.round(H*.26),30,48);
-  cv.width=W;cv.height=H;cv.style.width=W*sc/dpr+'px';cv.style.height=H*sc/dpr+'px';
+  cv.width=ppl.width=W;cv.height=ppl.height=H;cv.style.width=W*sc/dpr+'px';cv.style.height=H*sc/dpr+'px';
   ctx.imageSmoothingEnabled=false;
 }
 reset();addEventListener('resize',resize);resize();
