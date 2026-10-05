@@ -36,7 +36,8 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #title h1{margin:0;font-weight:400;font-size:clamp(46px,12vw,108px);line-height:1;letter-spacing:.02em;text-shadow:0 4px 0 var(--rust),0 8px 0 var(--ink)}
 #title p{margin:0;font-family:Georgia,serif;font-size:17px;text-shadow:0 1px 0 var(--ink),0 0 8px var(--ink)}
 #go{font:inherit;font-size:22px;color:var(--ink);background:var(--gold);border:0;border-bottom:4px solid #b9861f;border-radius:4px;padding:10px 28px 8px;margin-top:6px;cursor:pointer}
-#go:focus-visible,#mute:focus-visible{outline:3px solid var(--cream);outline-offset:3px}
+#cont{font:inherit;font-size:16px;color:var(--cream);background:rgba(36,22,15,.6);border:1px solid rgba(240,223,180,.6);border-radius:4px;padding:8px 20px 6px;cursor:pointer}
+#go:focus-visible,#cont:focus-visible,#mute:focus-visible{outline:3px solid var(--cream);outline-offset:3px}
 #title[hidden]{display:none}
 </style>
 </head>
@@ -57,6 +58,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
   <h1>Dustfall</h1>
   <p id="tag">A dead town, a tired horse, and a purse of coins.</p>
   <button id="go" type="button">Ride in</button>
+  <button id="cont" type="button" hidden>Continue</button>
   <p id="how">Arrow keys or A and D to ride. Space to toss a coin.</p>
 </div>
 
@@ -65,7 +67,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 const $=id=>document.getElementById(id);
 const cv=$('game'),stage=$('stage'),ppl=document.createElement('canvas'),pctx=ppl.getContext('2d');
 let ctx=cv.getContext('2d'),W=320,H=180,GY=132,G;
-const WORLD=1400,DAY_LEN=100,FIRE_X=765,TOWN=[500,1090],STOP=1098;
+const WORLD=1400,DAY_LEN=100,FIRE_X=765,TOWN=[500,1090],STOP=1098,MINE=384;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v,rnd=(a,b)=>a+Math.random()*(b-a);
 const hash=n=>{n=Math.sin(n*127.1+3.7)*43758.5453;return n-Math.floor(n);};
 const rgb=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));
@@ -83,16 +85,17 @@ const tone=(h,f)=>{f=Math.round(f*20)/20;return toneC[h+f]||(toneC[h+f]=css(rgb(
 
 // ---------- buildings: cost per level, morning payout, and the look of each front
 const DEF={
-  store:{name:'STORE',w:70,h:36,cost:[7],pay:4,wall:'#7d9484',trim:'#e6d6ac',roof:'#b44a3c',sign:'#35523f',ink:'#ead7a4',
+  store:{name:'STORE',w:70,h:36,cost:[7],pay:4,tool:'miner',wall:'#7d9484',trim:'#e6d6ac',roof:'#b44a3c',sign:'#35523f',ink:'#ead7a4',
     door:{x:49,w:13,h:20},wins:[{x:6,y:-21,w:35,h:14,big:1}],posts:[-4,70]},
   saloon:{name:'SALOON',w:86,h:40,cost:[6,10],pay:3,wall:'#a9683a',trim:'#6a3c20',roof:'#6a3c20',sign:'#ead7a4',ink:'#8a2b22',
     door:{x:36,w:14,h:21,bat:1},wins:[{x:8,y:-21,w:14,h:12},{x:64,y:-21,w:14,h:12}],posts:[-3,27,58,87]},
-  sheriff:{name:'SHERIFF',w:66,h:36,cost:[8],pay:0,wall:'#5f7896',trim:'#e6d6ac',roof:'#34445a',sign:'#ead7a4',ink:'#27364a',
+  sheriff:{name:'SHERIFF',w:66,h:36,cost:[8],pay:0,tool:'deputy',wall:'#5f7896',trim:'#e6d6ac',roof:'#34445a',sign:'#ead7a4',ink:'#27364a',
     door:{x:8,w:13,h:20},wins:[{x:32,y:-21,w:24,h:13,bars:1}],posts:[-3,67]},
   stable:{name:'STABLE',w:76,h:36,cost:[6],pay:0,barn:1,wall:'#9a4433',trim:'#ead7a4',roof:'#4a2a22',sign:'#ead7a4',ink:'#6a2a20',
     door:{x:26,w:24,h:22,barn:1},wins:[{x:8,y:-19,w:10,h:9},{x:58,y:-19,w:10,h:9}],posts:[]},
   station:{name:'STATION',w:84,h:38,cost:[20],pay:0,wall:'#c9a65a',trim:'#6a2f26',roof:'#4a3a34',sign:'#ead7a4',ink:'#4a2a22',
     door:{x:36,w:13,h:20},wins:[{x:8,y:-21,w:16,h:12},{x:60,y:-21,w:16,h:12}],posts:[-3,28,54,85]}};
+const rackX=b=>b.x+(b.type==='store'?-12:b.w+8);
 const ends=d=>d.posts.length?[d.posts[0],d.posts[d.posts.length-1]]:[];
 const mk=(type,x)=>({type,x,w:DEF[type].w,level:0,paid:0,incoming:0,building:false,progress:0,robbed:false,badges:0});
 const topOf=(b,L)=>DEF[b.type].h+(b.type==='saloon'&&L>1?22:0);
@@ -110,6 +113,7 @@ function reset(){
     coins:[],folk:[],drifters:[],bandits:[],parts:[],shots:[],
     weeds:[{x:300,h:0,vh:0,vx:26},{x:1100,h:0,vh:0,vx:-21}],
     b:[mk('store',508),mk('saloon',640),mk('sheriff',800),mk('stable',890),mk('station',1000)],train:null,
+    hens:[540,590,705].map((x,i)=>({x,dir:1,t:i,run:0,hop:0,mode:'walk'})),
     boxes:[{x:330,open:false},{x:1326,open:false}],camps:[{x:130},{x:1270}],seen:{}};
   for(let i=0;i<2;i++){drifter(0,false);drifter(1,false);}
   window.G=G;
@@ -187,6 +191,8 @@ const sfx={
   slot:()=>tone1(1500,.12,'triangle',.1,2000),
   recruit:()=>{tone1(520,.1,'triangle',.12);tone1(780,.16,'triangle',.12,0,.09);},
   hammer:v=>tone1(240,.05,'square',.07*v,90),
+  pick2:v=>tone1(1700,.04,'triangle',.06*v,900),
+  cluck:v=>{tone1(720,.05,'square',.04*v,480);tone1(820,.06,'square',.04*v,520,.09);},
   hoof:v=>tone1(95,.035,'triangle',.05*v,60),
   box:()=>tone1(140,.14,'square',.1,60),
   empty:()=>tone1(160,.08,'square',.04),
@@ -236,7 +242,8 @@ const HINTS={
   noworkers:'Paid for, but there is nobody to do the work. Recruit a drifter.',
   saloon1:'The saloon is open. It pays out every morning and shelters townsfolk at night.',
   saloon2:'A second floor. The saloon pays double now.',
-  store1:'The store is open. It pays 4 coins every morning.',
+  store1:'The store is open and pays 4 coins every morning. Toss a coin by its tool rack to outfit a prospector.',
+  miner:'A prospector. They dig at the old mine west of town by day, so ride out and collect the gold.',
   sheriff1:'The sheriff is in. Toss a coin by the badge rack and a townsperson will pin it on.',
   deputy:'A new deputy. Deputies guard the edges of town after dark.',
   raid:'Bandits ride in after dark. Keep at least one coin in your purse.',
@@ -286,7 +293,7 @@ function drifter(camp,fromEdge,x){
   G.drifters.push({id:G.nextId++,camp,home,x:x!==undefined?x:fromEdge?(c.x<700?14:WORLD-14):home,dir:-side,walk:0,target:null,moving:false});
 }
 function arrivals(){G.camps.forEach((c,i)=>{if(G.folk.length+G.drifters.length<16&&G.drifters.filter(d=>d.camp===i).length<2)drifter(i,true);});}
-const townie=(id,x,dir)=>G.folk.push({id,x,dir,walk:0,goal:'',tx:x,wait:0,at:false,hidden:false,moving:false,role:'folk',badge:false,ham:0,cd:0});
+const townie=(id,x,dir)=>G.folk.push({id,x,dir,walk:0,goal:'',tx:x,wait:0,at:false,hidden:false,moving:false,role:'folk',badge:null,ham:0,cd:0});
 const puff=(x,h,col)=>G.parts.push({x,h,vx:rnd(2,7),vh:rnd(7,12),life:0,max:rnd(1.5,2.8),col,grav:0,big:1});
 function recruit(d){
   G.drifters.splice(G.drifters.indexOf(d),1);townie(d.id,d.x,d.dir);
@@ -300,7 +307,7 @@ function dawn(){
     if(b.level&&d.pay&&!b.robbed)for(let i=0;i<d.pay*b.level;i++)coin(b.x+d.door.x+7,5,rnd(-40,40),rnd(55,90),true);
     b.robbed=false;
   }
-  arrivals();G.duskDone=false;
+  arrivals();G.duskDone=false;save();
   if(G.folk.length)hint('dawn');
 }
 function dusk(){
@@ -310,10 +317,32 @@ function dusk(){
   hint('raid');sfx.sting();
 }
 function banner(state,h,tag,btn){
-  G.state=state;$('hint').classList.remove('on');$('title').hidden=false;document.body.classList.add('title');
+  G.state=state;$('hint').classList.remove('on');$('title').hidden=false;document.body.classList.add('title');$('cont').hidden=true;
+  if(state==='over')try{localStorage.removeItem(SAVE);}catch(e){}else save();
   $('title').querySelector('h1').textContent=h;$('tag').textContent=tag;$('go').textContent=btn;$('how').textContent='';
 }
 const gameOver=()=>banner('over','Run out of town',`They caught you with an empty purse. You lasted ${G.day} ${G.day>1?'days':'day'}.`,'Ride again');
+
+// ---------- save: kept in this browser; written each dawn, when something is built, and when the page is hidden
+const SAVE='dustfall-save-1';
+function save(){
+  if(G.state!=='play'&&G.state!=='won')return;
+  try{localStorage.setItem(SAVE,JSON.stringify({day:G.day,t:G.t,dusk:G.duskDone,coins:G.player.coins,px:G.player.x,nextId:G.nextId,deps:G.deps,seen:G.seen,train:!!G.train,
+    b:G.b.map(b=>[b.level,b.badges,b.paid,+b.building,b.progress]),boxes:G.boxes.map(b=>b.open),
+    folk:G.folk.map(f=>[f.id,f.role,Math.round(f.x),f.side,f.slot]),dr:G.drifters.map(d=>[d.id,d.camp,Math.round(d.x)])}));}catch(e){}
+}
+function peek(){try{return JSON.parse(localStorage.getItem(SAVE));}catch(e){return null;}}
+function load(){
+  const s=peek();if(!s)return false;
+  reset();G.drifters.length=0;
+  Object.assign(G,{day:s.day,t:s.t,duskDone:s.dusk,deps:s.deps,seen:s.seen,train:s.train?{x:STOP,v:0,chuff:0,wait:0}:null,cam:clamp(s.px-W/2,0,WORLD-W)});
+  G.player.coins=s.coins;G.player.x=s.px;
+  s.b.forEach((v,i)=>Object.assign(G.b[i],{level:v[0],badges:v[1],paid:v[2],building:!!v[3],progress:v[4]}));
+  s.boxes.forEach((o,i)=>G.boxes[i].open=o);
+  for(const [id,role,x,side,slot] of s.folk){townie(id,x,1);Object.assign(G.folk[G.folk.length-1],{role,side,slot,px:x});}
+  for(const [id,camp,x] of s.dr){drifter(camp,false,x);G.drifters[G.drifters.length-1].id=id;}
+  G.nextId=s.nextId;return true;
+}
 
 // ---------- update
 function slotPos(b,i,n){
@@ -325,13 +354,13 @@ function tossCoin(){
   const p=G.player,b=zoneOf(p.x);
   p.coins--;p.toss=.25;sfx.toss();
   if(b&&!b.building){
-    const cost=DEF[b.type].cost[b.level];
+    const d=DEF[b.type],cost=d.cost[b.level];
     if(cost&&b.paid+b.incoming<cost){
       const sp=slotPos(b,b.paid+b.incoming,cost);p.lock=++b.incoming+b.paid>=cost;
       G.coins.push({x:p.x,h:16,st:'slot',b,tx:sp.x,th:sp.h,age:0});return;
     }
-    if(b.type==='sheriff'&&b.level&&b.badges+b.incoming<3){
-      G.coins.push({x:p.x,h:16,st:'badge',b,tx:b.x+b.w+6+(b.badges+b.incoming)*3,th:12,age:0});b.incoming++;return;
+    if(d.tool&&b.level&&b.badges+b.incoming<3){
+      G.coins.push({x:p.x,h:16,st:'badge',b,tx:rackX(b)-2+(b.badges+b.incoming)*3,th:12,age:0});b.incoming++;return;
     }
   }
   coin(p.x+p.dir*7,15,p.dir*26+p.vx*.4,45,false);
@@ -396,25 +425,32 @@ function updDrifters(dt){
   }
 }
 function updFolk(dt){
-  const site=G.b.find(b=>b.building),sal=G.b[1],sher=G.b[2],night=G.dark>.55,rack=sher.x+sher.w+8;
+  const site=G.b.find(b=>b.building),sal=G.b[1],night=G.dark>.55;
   const plain=G.folk.filter(f=>f.role==='folk');
-  if(sher.badges>plain.filter(f=>f.badge).length){
-    const c=plain.filter(f=>!f.badge).sort((a,b)=>Math.abs(a.x-rack)-Math.abs(b.x-rack))[0];if(c)c.badge=true;
+  for(const b of G.b)if(b.badges>plain.filter(f=>f.badge===b).length){
+    const c=plain.filter(f=>!f.badge).sort((a,z)=>Math.abs(a.x-rackX(b))-Math.abs(z.x-rackX(b)))[0];if(c)c.badge=b;
   }
   for(const f of G.folk){
     if(f.role==='deputy'){updDeputy(f,dt);continue;}
-    const goal=f.badge?'badge':site?'build'+site.x:night?(sal.level?'inside':'fire'):'wander';
+    const miner=f.role==='miner',goal=f.badge?'badge':site&&!miner?'build'+site.x:night?(sal.level?'inside':'fire'):miner?'mine':'wander';
     if(goal!==f.goal){
       f.goal=goal;f.hidden=false;f.at=false;f.wait=0;
-      f.tx=f.badge?rack:site?site.x+8+(f.id%5)*(site.w-16)/4:goal==='inside'?sal.x+43:goal==='fire'?FIRE_X+(f.id%2?1:-1)*(9+(f.id>>1)%4*6):rnd(TOWN[0],TOWN[1]);
+      f.tx=f.badge?rackX(f.badge):goal==='mine'?MINE-4+(f.id%4)*13:goal==='inside'?sal.x+43:goal==='fire'?FIRE_X+(f.id%2?1:-1)*(9+(f.id>>1)%4*6):site?site.x+8+(f.id%5)*(site.w-16)/4:rnd(TOWN[0],TOWN[1]);
     }
     if(f.hidden)continue;
-    f.at=step(f,f.tx,goal==='wander'?18:28,dt);f.sit=f.work=false;
+    f.at=step(f,f.tx,goal==='wander'?18:28,dt);f.sit=f.work=f.dig=false;
     if(!f.at)continue;
     if(f.badge){
-      sher.badges--;f.badge=false;f.role='deputy';f.side=G.deps%2?1:-1;f.slot=G.deps>>1;G.deps++;f.px=f.x;
-      dust(f.x,6,8,'#f2c14e',true);sfx.recruit();hint('deputy');
-    }else if(site){
+      const b=f.badge;b.badges--;f.badge=null;f.goal='';f.role=DEF[b.type].tool;
+      if(f.role==='deputy'){f.side=G.deps%2?1:-1;f.slot=G.deps>>1;G.deps++;f.px=f.x;}
+      dust(f.x,6,8,'#f2c14e',true);sfx.recruit();hint(f.role);
+    }else if(goal==='mine'){
+      // every 22 swings turns up a nugget, left on the ground at the mine for you (or a bandit) to collect
+      f.dig=true;f.dir=f.id%2?1:-1;const before=Math.floor(f.ham);f.ham+=dt*1.6;
+      if(Math.floor(f.ham)===before)continue;
+      sfx.pick2(near(f.x));dust(f.x+f.dir*4,2,1,'#b59a80');
+      if((f.ore=(f.ore||0)+1)>=22){f.ore=0;if(G.coins.filter(c=>c.st==='ground'&&Math.abs(c.x-MINE-20)<70).length<8)coin(f.x+f.dir*5,3,rnd(-12,12),rnd(30,50),true);}
+    }else if(goal.startsWith('build')){
       f.dir=1;f.work=true;const before=Math.floor(f.ham);f.ham+=dt*2.2;
       if(Math.floor(f.ham)!==before){sfx.hammer(near(f.x));dust(f.x+3,10,1,'#d9b77a');}
     }else if(goal==='inside')f.hidden=true;
@@ -475,7 +511,7 @@ function updBandits(dt){
       continue;
     }
     let f=null;bd=60;
-    for(const k of G.folk)if(k.role==='folk'&&!k.hidden&&Math.abs(k.x-q.x)<bd){bd=Math.abs(k.x-q.x);f=k;}
+    for(const k of G.folk)if(k.role!=='deputy'&&!k.hidden&&Math.abs(k.x-q.x)<bd){bd=Math.abs(k.x-q.x);f=k;}
     if(f){
       if(step(q,f.x,40,dt)){
         G.folk.splice(G.folk.indexOf(f),1);drifter(f.x<700?0:1,false,f.x);
@@ -502,7 +538,7 @@ function updBuild(dt){
     if(b.progress<1)continue;
     b.building=false;b.progress=0;b.paid=0;b.level++;
     for(let i=0;i<34;i++)dust(b.x+rnd(0,b.w),rnd(0,50),1,i%3?'#f0dfb4':'#f2c14e',true);
-    sfx.fanfare();hint(b.type+b.level);
+    sfx.fanfare();hint(b.type+b.level);save();
     if(b.type==='station'){G.train={x:WORLD+70,v:-70,chuff:0,wait:0};sfx.whistle();}
     else if(G.b.slice(0,3).every(z=>z.level)&&!G.b[4].level)setTimeout(()=>hint('rail'),7000);
   }
@@ -510,6 +546,19 @@ function updBuild(dt){
   if(s.level&&!s.building){
     if(Math.random()<dt*5)puff(s.x+s.w-14,topOf(s,s.level)+22,'#cfc6ba');
     if(pianoVol>.05&&Math.random()<dt*1.6)G.parts.push({x:s.x+43+rnd(-6,6),h:18,vx:rnd(-5,5),vh:rnd(9,14),life:0,max:1.8,col:'#f0dfb4',grav:0,lit:1,note:1});
+  }
+}
+function updHens(dt){
+  const p=G.player;if(!G.b[0].level||G.dark>.7)return;
+  for(const c of G.hens){
+    if(c.run<=0&&Math.abs(p.x-c.x)<16&&Math.abs(p.vx)>30){
+      c.run=1;c.dir=Math.sign(c.x-p.x)||1;sfx.cluck(near(c.x));
+      for(let i=0;i<3;i++)G.parts.push({x:c.x,h:4,vx:rnd(-12,12),vh:rnd(6,16),life:0,max:.8,col:'#f4ecd6',grav:-20});
+    }
+    c.run-=dt;c.t-=dt;c.hop=c.run>0?Math.abs(Math.sin(c.run*14))*4:0;
+    if(c.run>0)c.x+=c.dir*55*dt;
+    else{if(c.t<=0){c.t=rnd(1,4);c.mode=Math.random()<.5?'peck':'walk';c.dir=Math.random()<.5?-1:1;}if(c.mode==='walk')c.x+=c.dir*7*dt;}
+    c.x=clamp(c.x,484,770);
   }
 }
 // the railroad: the train rolls in once the station is up, lets a few settlers off, and that wins the game
@@ -552,7 +601,7 @@ function update(dt){
     if(G.t>.58&&!G.duskDone)dusk();
     G.raid=G.raid.filter(r=>G.t<r.t||(spawnBandit(r.side),false));
     G.dark=darkness(G.t);
-    updPlayer(dt);updCoins(dt);updDrifters(dt);updFolk(dt);updBandits(dt);updBuild(dt);updTrain(dt);
+    updPlayer(dt);updCoins(dt);updDrifters(dt);updFolk(dt);updBandits(dt);updBuild(dt);updTrain(dt);updHens(dt);
     const p=G.player,target=clamp(p.x+p.dir*W*.1-W/2,0,WORLD-W);
     G.cam+=(target-G.cam)*Math.min(1,dt*3.5);
   }else{G.dark=darkness(G.t);if(G.state==='title')G.cam=clamp(730-W/2,0,WORLD-W);}
@@ -622,6 +671,15 @@ function drawWindmill(sx){
   for(let i=0;i<8;i++){const a=a0+i*Math.PI/4;line(sx+Math.cos(a)*2,hy+Math.sin(a)*2,sx+Math.cos(a)*9,hy+Math.sin(a)*9,i%2?c:d);}
   R(sx-1,hy-1,2,2,d);
 }
+function drawMine(sx){
+  const r='#9a7f66',rs='#7d6652',rl='#b89c82',wd='#5a3a22';
+  shadow(sx+22,58);
+  for(const [x,y,w,h] of [[-6,8,56,8],[-1,16,46,8],[5,22,33,6],[13,26,17,4]]){R(sx+x,GY-y,w,h,r);R(sx+x,GY-y,w-4,1,rl);R(sx+x+w-5,GY-y,5,h,rs);}
+  for(const [x,y] of [[2,6],[38,12],[9,19],[30,4]])R(sx+x,GY-y,3,1,rs);
+  R(sx+15,GY-15,14,15,'#17110d');R(sx+14,GY-16,2,16,wd);R(sx+28,GY-16,2,16,wd);R(sx+12,GY-18,20,2,'#6a4a2e');R(sx+12,GY-18,20,1,'#84603e');
+  R(sx+20,GY-1,24,1,'#8a8f98');R(sx+35,GY-7,9,5,'#4a4a56');R(sx+35,GY-7,9,1,'#6a6a78');R(sx+36,GY-9,7,2,'#c9a14a');P(sx+37,GY-2,'#1c1c22');P(sx+42,GY-2,'#1c1c22');
+  R(sx+12,GY-13,2,3,'#2e241c');
+}
 function drawTower(sx){
   const c='#74665a',d='#4f443a',l='#8c7d6f';
   shadow(sx,26);
@@ -667,7 +725,7 @@ function drawProp(sx,type,v){
     R(sx+19,GY-2,9,1,d);R(sx+21,GY-3,5,1,d);
   }
 }
-const PROPS=[[58,'cactus',1],[172,'wagon'],[212,'rock'],[240,'grave'],[292,'cactus',0],[384,'fence'],[418,'skull'],[446,'cactus',1],[748,'hitch'],[730,'trough'],
+const PROPS=[[58,'cactus',1],[172,'wagon'],[212,'rock'],[240,'grave'],[292,'cactus',0],[358,'skull'],[446,'cactus',1],[748,'hitch'],[730,'trough'],
   [1352,'cactus',0]];
 function drawCamp(sx){
   shadow(sx-30,28);
@@ -798,7 +856,7 @@ function facade(sx,b,L){
   for(const px of ends(d)){R(sx+px,g-19,2,3,'#2e241c');P(sx+px,g-20,'#2e241c');}
   if(b.type==='saloon'){R(sx-13,g-8,6,8,'#7a4e2c');R(sx-13,g-7,6,1,'#3a2a1e');R(sx-13,g-3,6,1,'#3a2a1e');R(sx-13,g-8,1,8,'#96643c');R(sx+9,g-6,13,1,'#6a3c20');R(sx+10,g-5,1,3,'#6a3c20');R(sx+20,g-5,1,3,'#6a3c20');}
   if(b.type==='store'){R(sx+w+6,g-8,7,6,'#b08a50');line(sx+w+6,g-8,sx+w+12,g-3,'#7a5c34');R(sx+w+6,g-8,7,1,'#c9a468');R(sx+w+14,g-7,5,5,'#d8cdb0');R(sx+w+15,g-8,3,1,'#b9ad96');}
-  if(b.type==='sheriff'){const x=sx+w+8;R(x,g-15,1,13,'#5a3a22');R(x-3,g-15,7,1,'#5a3a22');}
+  if(d.tool){const x=sx+rackX(b)-b.x;R(x,g-15,1,15,'#5a3a22');R(x-3,g-15,7,1,'#5a3a22');}
   if(b.type==='stable'){R(sx+w+3,g-7,10,7,'#d8b25a');R(sx+w+3,g-7,10,1,'#ecd08a');R(sx+w+6,g-7,1,7,'#b8923e');R(sx+w+10,g-7,1,7,'#b8923e');line(sx-5,g-1,sx-2,g-13,'#5a3a22');R(sx-3,g-15,3,1,'#8a8f98');}
   if(b.type==='station'){
     const x=sx+w+12;R(sx+9,g-6,13,1,trim);R(sx+10,g-5,1,3,trim);R(sx+20,g-5,1,3,trim);R(sx+62,g-7,8,5,'#7a4e2c');R(sx+62,g-5,8,1,'#3a2a1e');
@@ -808,7 +866,10 @@ function facade(sx,b,L){
 }
 function lights(sx,b,a){
   const d=DEF[b.type],g=GY,L=b.level;
-  if(b.type==='sheriff'&&L)for(let i=0;i<b.badges;i++){const x=sx+b.w+5+i*3;R(x,g-13,3,1,'#f2c14e');P(x+1,g-14,'#ffe58a');P(x+1,g-12,'#f2c14e');}
+  if(d.tool&&L)for(let i=0;i<b.badges;i++){
+    const x=sx+rackX(b)-b.x-3+i*3;
+    if(d.tool==='deputy'){R(x,g-13,3,1,'#f2c14e');P(x+1,g-14,'#ffe58a');P(x+1,g-12,'#f2c14e');}else{R(x,g-13,3,1,'#b9c0cc');R(x+1,g-12,1,4,'#8a5a30');}
+  }
   if(!L||a<=0)return;
   ctx.globalAlpha=a;
   for(const q of wins(b,L)){
@@ -874,6 +935,11 @@ function person(sx,o,kind){
     R(sx-1,g-12,3,3,skin);if(look===4)R(sx-1+(d>0?1:0),g-10,2,2,'#eeeae0');
     R(sx-2,g-13,5,1,hat);R(sx-1,g-15,3,2,hat);if(look===1)R(sx-1,g-14,3,1,'#b53a2e');
   }
+  if(kind==='miner'){
+    const up=o.ham%1<.5,x=sx+d*2;
+    if(o.dig){line(x,g-8,x+d*(up?1:4),up?g-15:g-4,'#5a3a22');R(x+d*(up?1:4)-1,up?g-16:g-4,3,1,'#b9c0cc');}
+    else{line(sx-d*2,g-6,sx-d*2,g-14,'#5a3a22');R(sx-d*2-1,g-15,3,1,'#b9c0cc');}
+  }
   if(o.work){const up=o.ham%1<.5;R(sx+2,up?g-12:g-8,1,3,skin);R(sx+2,up?g-14:g-6,3,2,'#8a8f98');P(sx+3,up?g-12:g-7,'#5a3a22');}
 }
 function drawHorse(sx,p){
@@ -916,7 +982,7 @@ function draw(){
   const cam=Math.round(G.cam+(G.shake>0?rnd(-2,2)*G.shake*4:0)),dark=G.dark,[st,sb]=skyAt(G.t),p=G.player;
   ctx.clearRect(0,0,W,H);
   drawFar(cam,sb);drawMid(cam,sb);drawBirds(cam);
-  drawPoles(cam);drawWindmill(474-cam);drawTower(606-cam);
+  drawPoles(cam);drawMine(MINE-cam);drawWindmill(474-cam);drawTower(606-cam);
   for(const b of G.b){
     const sx=b.x-cam;if(sx>W+20||sx+b.w<-20)continue;
     shadow(sx+b.w/2,b.w+14);facade(sx,b,b.level);
@@ -951,8 +1017,14 @@ function draw(){
   // lit windows go on first so nobody walks behind the glass; people get their own layer and a lighter coat of night
   const la=clamp(dark*1.4,0,1),main=ctx;
   for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
+  if(G.folk.some(f=>f.role==='miner')){R(MINE+12-cam,GY-13,2,3,'#ffe08a');glow(MINE+13-cam,GY-12,16,'255,200,110',.1+.4*la);}
   if(G.train){const sx=Math.round(G.train.x-cam);glow(sx+1,GY-19,22,'255,230,150',.12+.5*la);ctx.globalAlpha=la;for(let i=0;i<6;i++)R(sx+68+i*7,GY-16,4,5,'#ffcf6b');ctx.globalAlpha=1;}
   ctx=pctx;ctx.clearRect(0,0,W,H);
+  if(G.b[0].level&&dark<.7)G.hens.forEach((c,i)=>{
+    const x=Math.round(c.x-cam),y=GY-Math.round(c.hop),d=c.dir,hx=d>0?x+2:x-3,peck=c.run<=0&&c.mode==='peck'&&Math.sin(G.clock*9+i)>0,col=i===1?'#b0703c':'#f4ecd6';
+    R(x-2,y-4,4,3,col);P(d>0?x-3:x+2,y-5,col);P(x-1,y-1,'#d98a2e');P(x+1,y-1,'#d98a2e');
+    if(peck){P(hx,y-3,col);P(hx+d,y-2,'#d98a2e');}else{R(hx,y-6,1,2,col);P(hx,y-7,'#c0392b');P(hx+d,y-5,'#d98a2e');}
+  });
   for(const d of G.drifters)person(Math.round(d.x-cam),d,'drifter');
   for(const f of G.folk)if(!f.hidden)person(Math.round(f.x-cam),f,f.role);
   for(const q of G.bandits)person(Math.round(q.x-cam),q,'bandit');
@@ -1043,14 +1115,17 @@ addEventListener('touchstart',touchy,{once:true,passive:true});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').blur();});
 
 // ---------- start and loop
-function start(){
+function start(keep){
   if(G.state==='play')return;if(G.state==='over')reset();
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
-  if(G.state!=='won'){G.t=.08;hint('start');}
+  if(G.state!=='won'&&keep!==true){G.t=.08;hint('start');}
   G.state='play';input.key=input.touch=0;input.dropKey=input.dropTouch=false;held.clear();
   $('title').hidden=true;document.body.classList.remove('title');
 }
 $('go').addEventListener('click',start);
+$('cont').addEventListener('click',()=>{if(load())start(true);});
+if(peek()){$('cont').hidden=false;$('cont').textContent='Continue, day '+peek().day;}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});addEventListener('pagehide',save);
 let last=performance.now();
 function frame(now){
   const dt=Math.min(.05,(now-last)/1000);last=now;
