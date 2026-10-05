@@ -241,9 +241,9 @@ const HINTS={
   dawn:'Morning. The town paid its dues, so ride through and collect.',
   done:'Dustfall is back on its feet. The railroad comes next.'};
 let hintTimer=0;
-function hint(k,again){
+function hint(k,again,txt){
   if(G.seen[k]&&!again)return;G.seen[k]=1;
-  const el=$('hint');el.textContent=HINTS[k];el.classList.add('on');
+  const el=$('hint');el.textContent=txt||HINTS[k];el.classList.add('on');
   clearTimeout(hintTimer);hintTimer=setTimeout(()=>el.classList.remove('on'),6500);
 }
 let hudCoins=-1,hudDay=-1;
@@ -296,16 +296,14 @@ function dawn(){
   if(G.folk.length)hint('dawn');
 }
 function dusk(){
-  G.duskDone=true;if(G.b[1].level)arrivals();
-  if(G.day<2)return;
+  G.duskDone=true;if(G.b[1].level)arrivals();if(G.day<2)return;
   const n=Math.min(G.day-1,8),s0=Math.random()<.5?1:-1;
   for(let i=0;i<n;i++)G.raid.push({t:.74+Math.random()*.13,side:i%2?s0:-s0});
   hint('raid');sfx.sting();
 }
 function gameOver(){
   G.state='over';$('hint').classList.remove('on');
-  $('title').hidden=false;document.body.classList.add('title');
-  $('title').querySelector('h1').textContent='Run out of town';
+  $('title').hidden=false;document.body.classList.add('title');$('title').querySelector('h1').textContent='Run out of town';
   $('tag').textContent=`They caught you with an empty purse. You lasted ${G.day} ${G.day>1?'days':'day'}.`;
   $('go').textContent='Ride again';$('how').textContent='';
 }
@@ -343,8 +341,9 @@ function updPlayer(dt){
   if(st!==p.st){p.st=st;if(sp>10)sfx.hoof(sp>55?1:.6);}
   if(sp>60&&Math.random()<dt*16)dust(p.x-p.dir*8,0,1);
   p.cd-=dt;
-  if((input.dropKey||input.dropTouch)&&p.cd<=0){
-    if(p.coins>0){tossCoin();p.cd=.22;}else{sfx.empty();p.cd=.5;hint('broke',true);}
+  const drop=input.dropKey||input.dropTouch;if(!drop)p.lock=false;
+  if(drop&&!p.lock&&p.cd<=0){
+    if(p.coins>0){tossCoin();p.cd=.22;}else if(!G.b.some(b=>b.paid)){sfx.empty();p.cd=.5;hint('broke',true);}
   }
   for(const b of G.boxes)if(!b.open&&Math.abs(b.x-p.x)<10){
     b.open=true;for(let i=0;i<4;i++)coin(b.x,4,rnd(-34,34),rnd(60,95),true);sfx.box();dust(b.x,2,6);hint('box');
@@ -359,6 +358,9 @@ function updCoins(dt){
       if(c.h<=0){c.h=0;if(c.vh<-45){c.vh*=-.35;c.vx*=.5;sfx.clink(near(c.x));}else c.st='ground';}
     }else if(c.st==='ground'){
       if(!c.claimed&&c.age>(c.free?.5:2.2)&&Math.abs(c.x-p.x)<9){G.coins.splice(i,1);p.coins++;sfx.pick();}
+    }else if(c.st==='back'){
+      const dx=p.x-c.x,dh=14-c.h,dist=Math.hypot(dx,dh),step=200*dt;if(c.age<0)continue;
+      if(dist>step){c.x+=dx/dist*step;c.h+=dh/dist*step;}else{G.coins.splice(i,1);p.coins++;sfx.pick();}
     }else{
       const dx=c.tx-c.x,dh=c.th-c.h,dist=Math.hypot(dx,dh),step=150*dt,b=c.b;
       if(dist>step){c.x+=dx/dist*step;c.h+=dh/dist*step;continue;}
@@ -436,9 +438,8 @@ function updDeputy(f,dt){
   }
 }
 function killBandit(q){
-  G.bandits.splice(G.bandits.indexOf(q),1);
+  G.bandits.splice(G.bandits.indexOf(q),1);dust(q.x,4,10);
   for(let i=0;i<q.loot;i++)coin(q.x,6,rnd(-20,20),rnd(40,70),true);
-  dust(q.x,4,10);
 }
 function updBandits(dt){
   const p=G.player;
@@ -480,7 +481,14 @@ function updBandits(dt){
   }
 }
 function updBuild(dt){
+  const p=G.player;
   for(const b of G.b){
+    const cost=DEF[b.type].cost[b.level];
+    b.short=!b.building&&b.paid>0&&!b.incoming&&(!p.coins||zoneOf(p.x)!==b)?(b.short||0)+dt:0;
+    if(b.short>.45){
+      for(let i=0;i<b.paid;i++){const sp=slotPos(b,i,cost);G.coins.push({x:sp.x,h:sp.h,st:'back',age:-i*.07});}
+      b.paid=0;p.lock=true;hint('short',true,p.coins?`Coins returned. The ${b.type} needs all ${cost} at once.`:`Not enough coins, so they came back. The ${b.type} needs ${cost}.`);
+    }
     if(!b.building)continue;
     b.progress+=dt*.035*Math.min(G.folk.filter(f=>f.work).length,5);
     if(b.progress<1)continue;
@@ -497,8 +505,7 @@ function updBuild(dt){
 }
 function updWorld(dt){
   for(const w of G.weeds){
-    w.vh-=160*dt;w.h+=w.vh*dt;if(w.h<=0){w.h=0;w.vh=rnd(20,48);}
-    w.x+=w.vx*dt;if(w.x<-20)w.x=WORLD+20;if(w.x>WORLD+20)w.x=-20;
+    w.vh-=160*dt;w.h+=w.vh*dt;if(w.h<=0){w.h=0;w.vh=rnd(20,48);}w.x+=w.vx*dt;if(w.x<-20)w.x=WORLD+20;if(w.x>WORLD+20)w.x=-20;
   }
   for(let i=G.parts.length-1;i>=0;i--){
     const q=G.parts[i];q.life+=dt;q.x+=q.vx*dt;q.h+=q.vh*dt;q.vh+=q.grav*dt;
@@ -602,7 +609,7 @@ function drawTower(sx){
 function drawBarn(sx){
   const w=76,h=32,wall='#7d7266',dk='#564c42',hole='#241e1a',board='#96897b';
   shadow(sx+w/2,w+8);
-  for(let i=0;i<w;i+=5){const v=hash(sx+G.cam+i);R(sx+i,GY-h,5,h,tone(wall,.92+Math.round(v*3)*.05));R(sx+i+4,GY-h,1,h,dk);if(v>.82)R(sx+i,GY-h+4+Math.floor(v*10),4,9,hole);}
+  for(let i=0;i<w;i+=5){const v=hash(890+i);R(sx+i,GY-h,5,h,tone(wall,.92+Math.round(v*3)*.05));R(sx+i+4,GY-h,1,h,dk);if(v>.82)R(sx+i,GY-h+4+Math.floor(v*10),4,9,hole);}
   for(let k=0;k<13;k++){R(sx-3+k*3,GY-h-k-1,w+6-k*6,1,k%2?dk:'#4a4038');}
   R(sx+26,GY-24,24,24,hole);R(sx+24,GY-17,28,2,board);R(sx+24,GY-8,28,2,board);line(sx+25,GY-2,sx+50,GY-23,board);
   R(sx+33,GY-h-7,8,6,hole);R(sx-3,GY-2,w+6,2,dk);
@@ -878,7 +885,6 @@ function draw(){
     else{ctx.globalAlpha=1-k*k;P(x,y,q.col);}
   }
   ctx.globalAlpha=1;
-
   // golden hour, then night in two coats so people stay readable against the dark town
   const coat=(col,a)=>{if(a<=0)return;ctx.globalCompositeOperation='source-atop';ctx.fillStyle=`rgba(${col},${a})`;ctx.fillRect(0,0,W,H);ctx.globalCompositeOperation='source-over';};
   coat('255,120,50',.2*warmth(G.t));coat('16,14,54',.5*dark);
@@ -887,7 +893,6 @@ function draw(){
   for(const q of G.bandits)person(Math.round(q.x-cam),q,'bandit');
   if(G.state==='play')drawHorse(p.x-cam,p);
   coat('16,14,54',.3*dark);
-
   // lights
   const la=clamp(dark*1.4,0,1);
   for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
@@ -910,7 +915,6 @@ function draw(){
   const vg=ctx.createRadialGradient(W/2,H*.45,H*.45,W/2,H*.45,Math.max(W,H)*.75);vg.addColorStop(0,'rgba(20,10,6,0)');vg.addColorStop(1,'rgba(20,10,6,.42)');
   ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
   if(G.flash>0)R(0,0,W,H,`rgba(200,40,30,${G.flash*.8})`);
-
   // sky goes in behind everything: clouds, sun or moon, stars, then the gradient
   ctx.globalCompositeOperation='destination-over';
   const cc=css(mixA(mixA([255,250,240],sb,.4),[46,44,80],dark*.85)),cs=css(mixA(mixA([225,205,195],sb,.6),[34,32,64],dark*.85));
@@ -967,18 +971,15 @@ pad.addEventListener('pointerdown',e=>{padId=e.pointerId;try{pad.setPointerCaptu
 pad.addEventListener('pointermove',e=>{if(e.pointerId===padId)padSet(e);});
 for(const ev of ['pointerup','pointercancel'])pad.addEventListener(ev,e=>{if(e.pointerId===padId){padId=null;input.touch=0;pad.className='';}});
 toss.addEventListener('pointerdown',e=>{input.dropTouch=true;toss.classList.add('on');e.preventDefault();});
-for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});
-addEventListener('contextmenu',e=>e.preventDefault());
-let touch=false;
-const touchy=()=>{touch=true;document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Hold the pad to ride. Tap the coin to toss one.';};
+for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});addEventListener('contextmenu',e=>e.preventDefault());
+const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Hold the pad to ride. Tap the coin to toss one.';};
 if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||navigator.maxTouchPoints>0)touchy();
 addEventListener('touchstart',touchy,{once:true,passive:true});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').blur();});
 
 // ---------- start and loop
 function start(){
-  if(G.state==='play')return;
-  if(G.state==='over')reset();
+  if(G.state==='play')return;if(G.state==='over')reset();
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
   G.state='play';G.t=.08;input.key=input.touch=0;input.dropKey=input.dropTouch=false;held.clear();
   $('title').hidden=true;document.body.classList.remove('title');
