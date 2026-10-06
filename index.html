@@ -9,8 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Rye&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#24160f;--cream:#f0dfb4;--gold:#f2c14e;--rust:#a8452e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-*,*::before,*::after{box-sizing:inherit}
-html,body{height:100%;margin:0}
+*,*::before,*::after{box-sizing:inherit;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;touch-action:none}
 body{background:var(--ink);color:var(--cream);font-family:Rye,Rockwell,Georgia,serif;overflow:hidden;position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;overscroll-behavior:none}
 #stage{position:absolute;inset:0;display:flex;justify-content:center;align-items:flex-start;overflow:hidden}
 canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch-action:none}
@@ -22,16 +22,17 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #hint{position:absolute;left:50%;top:50px;transform:translateX(-50%);width:max-content;max-width:min(92%,34rem);text-align:center;font-family:Georgia,serif;font-size:15px;line-height:1.35;background:rgba(36,22,15,.85);padding:8px 14px;border-radius:4px;opacity:0;transition:opacity .4s;pointer-events:none}
 #hint.on{opacity:1}
 #pad,#toss{position:absolute;bottom:18px;display:none;touch-action:none;-webkit-tap-highlight-color:transparent}
-.touch #pad{display:flex}
+.touch #pad{display:grid}
 .touch #toss{display:grid}
 .title #pad,.title #toss,.title #hud{display:none}
-#pad{left:max(16px,env(safe-area-inset-left,0px));width:168px;height:74px;border-radius:37px;overflow:hidden;background:rgba(36,22,15,.45);border:2px solid rgba(240,223,180,.55)}
-#pad span{flex:1;display:grid;place-items:center}
-#pad svg{width:26px;height:26px;fill:var(--cream);opacity:.9}
-#pad.l span:first-child,#pad.r span:last-child{background:rgba(240,223,180,.28)}
-#toss{right:max(16px,env(safe-area-inset-right,0px));width:78px;height:78px;border-radius:50%;place-items:center;padding:0;background:rgba(36,22,15,.45);border:2px solid rgba(242,193,78,.85)}
+#pad{left:max(14px,env(safe-area-inset-left,0px));width:124px;height:124px;border-radius:50%;place-items:center;background:rgba(36,22,15,.4);border:2px solid rgba(240,223,180,.5)}
+#pad svg{position:absolute;top:50%;margin-top:-9px;width:18px;height:18px;fill:var(--cream);opacity:.5;pointer-events:none}
+#pad svg:first-of-type{left:7px}
+#pad svg:last-of-type{right:7px}
+#knob{width:54px;height:54px;border-radius:50%;background:rgba(240,223,180,.88);box-shadow:inset -5px -6px 0 rgba(120,90,50,.5),0 3px 0 rgba(36,22,15,.6);pointer-events:none}
+#toss{right:max(20px,env(safe-area-inset-right,0px));bottom:34px;width:88px;height:88px;border-radius:50%;place-items:center;padding:0;background:rgba(36,22,15,.45);border:2px solid rgba(242,193,78,.85)}
 #toss.on{background:rgba(242,193,78,.3)}
-#toss .coin{width:34px;height:34px;box-shadow:inset -5px -5px 0 #c08a1e}
+#toss .coin{width:38px;height:38px;box-shadow:inset -5px -5px 0 #c08a1e}
 #title{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;text-align:center;gap:12px;padding:20px;background:linear-gradient(rgba(36,22,15,.1),rgba(36,22,15,.6))}
 #title h1{margin:0;font-weight:400;font-size:clamp(46px,12vw,108px);line-height:1;letter-spacing:.02em;text-shadow:0 4px 0 var(--rust),0 8px 0 var(--ink)}
 #title p{margin:0;font-family:Georgia,serif;font-size:17px;text-shadow:0 1px 0 var(--ink),0 0 8px var(--ink)}
@@ -49,9 +50,8 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
   <button id="mute" type="button">Sound on</button>
 </div>
 <div id="hint" role="status"></div>
-<div id="pad" aria-label="Ride left or right">
-  <span><svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z"/></svg></span>
-  <span><svg viewBox="0 0 24 24"><path d="m8 4 10 8-10 8z"/></svg></span>
+<div id="pad" aria-label="Thumbstick: ride left or right">
+  <svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z"/></svg><i id="knob"></i><svg viewBox="0 0 24 24"><path d="m8 4 10 8-10 8z"/></svg>
 </div>
 <button id="toss" type="button" aria-label="Toss a coin"><i class="coin"></i></button>
 <div id="title">
@@ -106,7 +106,7 @@ function wins(b,L){
 }
 
 // ---------- state
-const input={key:0,touch:0,dropKey:false,dropTouch:false};
+const input={key:0,stick:0,padAxis:0,dpad:0,dropKey:false,dropTouch:false,padDrop:false};
 function reset(){
   G={state:'title',t:.6,day:1,clock:0,dark:0,timeScale:1,cam:560,nextId:1,deps:0,duskDone:false,shake:0,flash:0,raid:[],
     player:{x:745,vx:0,dir:-1,hold:0,phase:0,coins:8,cd:0,toss:0,st:0},
@@ -366,9 +366,10 @@ function tossCoin(){
   coin(p.x+p.dir*7,15,p.dir*26+p.vx*.4,45,false);
 }
 function updPlayer(dt){
-  const p=G.player,d=input.key||input.touch;
+  // keys and d-pad: hold to gallop. Sticks are analog: a light push walks, a full push gallops straight away
+  const p=G.player,a=input.stick||input.padAxis,dig=input.key||input.dpad,d=dig||(Math.abs(a)>.25?Math.sign(a):0);
   if(d){p.dir=d;p.hold+=dt;}else p.hold=0;
-  const want=d*(p.hold>.45?(G.b[3].level?104:78):40),rate=(!d||want*p.vx<0?950:360)*dt;
+  const want=d*((dig?p.hold>.45:Math.abs(a)>.75)?(G.b[3].level?104:78):40),rate=(!d||want*p.vx<0?950:360)*dt;
   if(!d&&Math.abs(p.vx)>50)dust(p.x+Math.sign(p.vx)*9,0,2);
   p.vx+=clamp(want-p.vx,-rate,rate);p.x+=p.vx*dt;
   if(p.x<30){p.x=30;p.vx=0;}if(p.x>WORLD-30){p.x=WORLD-30;p.vx=0;}
@@ -378,7 +379,7 @@ function updPlayer(dt){
   if(st!==p.st){p.st=st;if(sp>10)sfx.hoof(sp>55?1:.6);}
   if(sp>60&&Math.random()<dt*16)dust(p.x-p.dir*8,0,1);
   p.cd-=dt;
-  const drop=input.dropKey||input.dropTouch;if(!drop)p.lock=false;
+  const drop=input.dropKey||input.dropTouch||input.padDrop;if(!drop)p.lock=false;
   if(drop&&!p.lock&&p.cd<=0){
     if(p.coins>0){tossCoin();p.cd=.22;}else if(!G.b.some(b=>b.paid)){sfx.empty();p.cd=.5;hint('broke',true);}
   }
@@ -1102,16 +1103,27 @@ addEventListener('keyup',e=>{
   if(e.key===' '||e.key==='ArrowDown'||e.key==='s'||e.key==='S')input.dropKey=false;
 });
 addEventListener('blur',()=>{held.clear();input.key=0;input.dropKey=false;});
-const pad=$('pad'),toss=$('toss');let padId=null;
-const padSet=e=>{const r=pad.getBoundingClientRect();input.touch=e.clientX<r.left+r.width/2?-1:1;pad.className=input.touch<0?'l':'r';};
+const pad=$('pad'),knob=$('knob'),toss=$('toss');let padId=null;
+const padSet=e=>{const r=pad.getBoundingClientRect(),dx=clamp(e.clientX-r.left-r.width/2,-34,34);input.stick=dx/34;knob.style.transform=`translateX(${dx}px)`;};
 pad.addEventListener('pointerdown',e=>{padId=e.pointerId;try{pad.setPointerCapture(padId);}catch(_){}padSet(e);e.preventDefault();});
 pad.addEventListener('pointermove',e=>{if(e.pointerId===padId)padSet(e);});
-for(const ev of ['pointerup','pointercancel'])pad.addEventListener(ev,e=>{if(e.pointerId===padId){padId=null;input.touch=0;pad.className='';}});
+for(const ev of ['pointerup','pointercancel'])pad.addEventListener(ev,e=>{if(e.pointerId===padId){padId=null;input.stick=0;knob.style.transform='';}});
 toss.addEventListener('pointerdown',e=>{input.dropTouch=true;toss.classList.add('on');e.preventDefault();});
 for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});addEventListener('contextmenu',e=>e.preventDefault());
-const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Hold the pad to ride. Tap the coin to toss one.';};
+const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Push the stick to ride, further to gallop. Tap the coin to toss one.';};
 if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||navigator.maxTouchPoints>0)touchy();
 addEventListener('touchstart',touchy,{once:true,passive:true});
+// stop long-press text selection, the copy bubble, and double-tap or pinch zoom; real buttons still get their taps
+const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#mute'))e.preventDefault();};
+for(const ev of ['touchstart','touchmove','touchend','gesturestart','selectstart','dblclick'])document.addEventListener(ev,quiet,{passive:false});
+// physical controller: left stick or d-pad rides, A / B / X or right trigger tosses, A or Start begins
+let padWas=false;
+function pollPad(){
+  const gp=navigator.getGamepads?[...navigator.getGamepads()].find(g=>g&&g.connected):null,on=i=>!!(gp&&gp.buttons[i]&&gp.buttons[i].pressed);
+  input.padAxis=gp&&Math.abs(gp.axes[0])>.25?gp.axes[0]:0;input.dpad=on(15)-on(14);input.padDrop=[0,1,2,7].some(on);
+  const go=on(0)||on(9);if(go&&!padWas&&G.state!=='play')start();padWas=go;
+}
+addEventListener('gamepadconnected',()=>{if(G.state==='title')$('how').textContent='Controller: stick or d-pad to ride, A to toss a coin.';});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').blur();});
 
 // ---------- start and loop
@@ -1119,7 +1131,7 @@ function start(keep){
   if(G.state==='play')return;if(G.state==='over')reset();
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
   if(G.state!=='won'&&keep!==true){G.t=.08;hint('start');}
-  G.state='play';input.key=input.touch=0;input.dropKey=input.dropTouch=false;held.clear();
+  G.state='play';G.player.lock=true;input.key=input.stick=0;input.dropKey=input.dropTouch=false;held.clear();
   $('title').hidden=true;document.body.classList.remove('title');
 }
 $('go').addEventListener('click',start);
@@ -1129,7 +1141,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});a
 let last=performance.now();
 function frame(now){
   const dt=Math.min(.05,(now-last)/1000);last=now;
-  for(let i=0;i<G.timeScale;i++)update(dt);
+  pollPad();for(let i=0;i<G.timeScale;i++)update(dt);
   draw();hud();updAudio();
   requestAnimationFrame(frame);
 }
