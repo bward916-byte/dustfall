@@ -24,7 +24,18 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 .bump{animation:bump .28s}
 @keyframes bump{40%{transform:scale(1.4);color:#fff}}
 @media (prefers-reduced-motion:reduce){.bump{animation:none}}
-#day{margin-left:auto}
+#ammo{display:flex;gap:3px;align-items:center}
+#ammo i{width:5px;height:12px;border-radius:2px 2px 1px 1px;border:1px solid rgba(240,223,180,.6);background:rgba(36,22,15,.45)}
+#ammo i.on{background:linear-gradient(#f2c14e 0 58%,#b9792a 58%);border-color:#6a4612}
+#news{flex:0 1 auto;min-width:0;font-family:Georgia,serif;font-size:13px;background:rgba(36,22,15,.6);padding:3px 9px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:none}
+#news:empty{display:none}
+#day{margin-left:auto;white-space:nowrap}
+#fire{position:absolute;right:calc(max(20px,env(safe-area-inset-right,0px)) + 104px);bottom:24px;width:68px;height:68px;border-radius:50%;display:none;place-items:center;padding:0;background:rgba(36,22,15,.45);border:2px solid rgba(240,223,180,.85);touch-action:none;-webkit-tap-highlight-color:transparent}
+.touch.armed #fire{display:grid}
+#fire.on{background:rgba(200,60,40,.45)}
+#fire svg{width:34px;height:34px;stroke:var(--cream);fill:none;stroke-width:2;pointer-events:none}
+#mute{white-space:nowrap}
+@media (max-width:560px){#hud{flex-wrap:wrap;row-gap:6px}#news{order:5;flex-basis:100%;max-width:max-content}#hint{top:86px}}
 #mute{pointer-events:auto;font:inherit;font-size:15px;color:var(--cream);background:rgba(36,22,15,.5);border:1px solid rgba(240,223,180,.5);border-radius:4px;padding:4px 10px;cursor:pointer}
 #hint{position:absolute;left:50%;top:50px;transform:translateX(-50%);width:max-content;max-width:min(92%,34rem);text-align:center;font-family:Georgia,serif;font-size:15px;line-height:1.35;background:rgba(36,22,15,.85);padding:8px 14px;border-radius:4px;opacity:0;transition:opacity .4s;pointer-events:none}
 #hint.on{opacity:1}
@@ -63,7 +74,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #card small{display:block;font-family:Georgia,serif;font-size:17px;letter-spacing:0;margin-top:16px;text-shadow:0 1px 0 var(--ink),0 0 6px var(--ink),0 0 14px var(--ink)}
 #skip{position:absolute;right:14px;top:8px;margin:0;font-family:Georgia,serif;font-size:12px;opacity:0}
 .cine #skip{opacity:.65;transition:opacity .6s}
-.cine #hud,.cine #pad,.cine #toss,.cine #hint{display:none}
+.cine #hud,.cine #pad,.cine #toss,.cine #hint,.cine #fire,.title #fire{display:none}
 @media (prefers-reduced-motion:reduce){#barT,#barB,#cap,#cap.on,#card,#card.on,#cine::before{transition:none}}
 </style>
 </head>
@@ -71,7 +82,9 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 <div id="stage"><canvas id="game"></canvas></div>
 <div id="hud">
   <span id="purse"><i class="coin"></i><b id="coins">8</b></span>
+  <span id="ammo" aria-label="Rounds in your six-shooter"><i></i><i></i><i></i><i></i><i></i><i></i></span>
   <span id="vault" aria-label="In the bank" hidden><i class="safe"></i><b id="bankc">0</b></span>
+  <span id="news" role="status"></span>
   <span id="day">Day 1</span>
   <button id="mute" type="button">Sound on</button>
 </div>
@@ -81,12 +94,13 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
   <svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z"/></svg><i id="knob"></i><svg viewBox="0 0 24 24"><path d="m8 4 10 8-10 8z"/></svg>
 </div>
 <button id="toss" type="button" aria-label="Toss a coin"><i class="coin"></i></button>
+<button id="fire" type="button" aria-label="Fire your six-shooter"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg></button>
 <div id="title">
   <h1>Dustfall</h1>
   <p id="tag">A dead town, a tired horse, and a purse of coins.</p>
   <button id="go" type="button">Ride in</button>
   <button id="cont" type="button" hidden>Continue</button>
-  <p id="how">Arrow keys or A and D to ride. Space to toss a coin.</p>
+  <p id="how">Arrow keys or A and D to ride. Space to toss a coin, F to fire.</p>
 </div>
 
 <script>
@@ -94,7 +108,15 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 const $=id=>document.getElementById(id);
 const cv=$('game'),stage=$('stage'),ppl=document.createElement('canvas'),pctx=ppl.getContext('2d');
 let ctx=cv.getContext('2d'),W=320,H=180,GY=132,G;
-const WORLD=2780,DAY_LEN=100,FIRE_X=1365,TOWN=[1010,1790],STOP=1798,MINE=830,PASTURE=[2030,2150],MID=1400;
+const DAY_LEN=100,FIRE_X=1365,MINE=830,MID=1400,CLAIM_X=528;
+// towns down the line are bigger and each sits in its own country: everything east of the stable moves out to make room for four more buildings
+let WORLD=2780,TOWN=[1010,1790],STOP=1798,PASTURE=[2030,2150],SHIFT=0,BIO='desert',C,GP,DUSTC='#e2c08c';
+const BIOMES=['desert','river','canyon','desert','snow','snow'];
+const EX=x=>x>1695?x+SHIFT:x;
+function layout(town){
+  SHIFT=town?340:0;BIO=BIOMES[town%6];WORLD=2780+SHIFT;TOWN=[1010,1790+SHIFT];STOP=1798+SHIFT;PASTURE=[2030+SHIFT,2150+SHIFT];
+  C=CSET[BIO];GP=GSET[BIO];DUSTC=GP[9];
+}
 const TOWNS=['DUSTFALL','REDWATER','IRON GULCH','LAST HOPE','COLD CREEK','BITTER END'];
 const townName=()=>TOWNS[G.town%TOWNS.length],nice=s=>s.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
 const clamp=(v,a,b)=>v<a?a:v>b?b:v,rnd=(a,b)=>a+Math.random()*(b-a);
@@ -131,19 +153,30 @@ const DEF={
   hall:{name:'',w:26,h:14,cost:[12,25],pay:0,hall:1},     // the town centre: campfire, then a square, then a clock tower
   gate:{name:'',w:14,h:16,cost:[4,8,14],pay:0,gate:1,tier:1},   // barricade, stockade, then a gatehouse with a Gatling gun
   wire:{name:'',w:30,h:10,cost:[6],pay:0,wire:1},         // barbed wire outside each gate
-  train:{name:'',w:46,h:14,cost:[5],pay:0,virt:1}};        // not a building: the passenger car, where a ticket is paid
+  train:{name:'',w:46,h:14,cost:[5],pay:0,virt:1},         // not a building: the passenger car, where a ticket is paid
+  // from the second town on
+  doctor:{name:'DOCTOR',w:58,h:36,cost:[8],pay:0,wall:'#d9d2c0',trim:'#3d6a5a',roof:'#3d5a50',sign:'#f4ecd6',ink:'#3d6a5a',
+    door:{x:8,w:13,h:20},wins:[{x:29,y:-21,w:20,h:13}],posts:[-3,59]},
+  church:{name:'CHURCH',w:54,h:40,cost:[10],pay:0,wall:'#e8e2d2',trim:'#6a5a4a',roof:'#5a4a40',sign:'#e8e2d2',ink:'#5a4a40',
+    door:{x:20,w:14,h:22},wins:[{x:5,y:-22,w:9,h:14},{x:40,y:-22,w:9,h:14}],posts:[]},
+  forge:{name:'SMITHY',w:60,h:36,cost:[9,14],pay:0,tier:1,wall:'#6e5a4a',trim:'#2e2622',roof:'#2e2622',sign:'#2e2622',ink:'#e89a4a',
+    door:{x:34,w:18,h:21},wins:[{x:7,y:-20,w:16,h:12}],posts:[-3,61]},
+  telegraph:{name:'TELEGRAPH',w:62,h:36,cost:[8],pay:0,wall:'#c9b98a',trim:'#4a5a6a',roof:'#3a4652',sign:'#e8e2d2',ink:'#2f3a46',
+    door:{x:42,w:13,h:20},wins:[{x:7,y:-21,w:26,h:13}],posts:[-3,63]},
+  claim:{name:'',w:30,h:26,cost:[6,8],pay:0,claim:1},      // the old diggings far out west: staked, then guarded
+  coach:{name:'',w:38,h:14,cost:[3],pay:0,virt:1}};        // the stagecoach while it waters its team: where a guard is paid for
 const GHP=[0,8,16,28];                                      // gate hit points by level
 const KIND={bandit:[2,40,1,3],rider:[3,74,1,4],boss:[12,30,2,5]};   // hit points, speed, damage to a gate, coins knocked from your purse
 const rackX=b=>b.x+(b.type==='store'?-12:b.type==='stable'?b.w+18:b.w+8);
 // most buildings can only be raised one level beyond the town centre's own; each town down the line costs a quarter more
 const cap=b=>DEF[b.type].tier?1+G.b[9].level:9;
 const costOf=b=>{const c=DEF[b.type].cost[b.level];return c&&b.level<cap(b)?Math.ceil(c*(1+.25*G.town)):0;};
-const label=b=>({hall:'town centre',wire:'barbed wire',gate:'gate',train:'train'})[b.type]||b.type;
+const label=b=>({hall:'town centre',wire:'barbed wire',gate:'gate',train:'train',claim:'claim',coach:'stagecoach guard',forge:'blacksmith',telegraph:'telegraph office',doctor:'doctor'})[b.type]||b.type;
 const popCap=()=>26+G.b[9].level*6+G.b[10].level*4;
 const ends=d=>d.posts.length?[d.posts[0],d.posts[d.posts.length-1]]:[];
 const mk=(type,x,side)=>({type,x,w:DEF[type].w,level:0,paid:0,incoming:0,building:false,progress:0,robbed:false,badges:0,hp:0,side:side||0});
 const topOf=(b,L)=>{const d=DEF[b.type];return d.hall?[14,40,74][L]:d.h+(d.up&&L>1?22:0)+(d.gate&&L>1?8:0)+(d.gate&&L>2?8:0);};
-const tall=(b,L)=>topOf(b,L)+(b.type==='sheriff'&&L>1?34:0)+(L>2?14:0);
+const tall=(b,L)=>topOf(b,L)+(b.type==='sheriff'&&L>1?34:0)+(b.type==='church'&&L?36:0)+(L>2?14:0);
 function wins(b,L){
   const w=DEF[b.type].wins.slice();
   if(b.type==='saloon'&&L>1)w.push({x:8,y:-51,w:14,h:13},{x:64,y:-51,w:14,h:13},{x:38,y:-43,w:10,h:17,door:1});
@@ -153,18 +186,20 @@ function wins(b,L){
 }
 
 // ---------- state
-const input={key:0,stick:0,padAxis:0,dpad:0,dropKey:false,dropTouch:false,padDrop:false};
-function reset(){
+const input={key:0,stick:0,padAxis:0,dpad:0,dropKey:false,dropTouch:false,padDrop:false,fireKey:false,fireTouch:false,padFire:false};
+function reset(town){
+  town=town||0;layout(town);const river=BIO==='river';
   glance(false);cine(false);
-  G={state:'title',t:.6,day:1,day0:0,town:0,bank:0,clock:0,dark:0,timeScale:1,cam:FIRE_X-205,nextId:1,deps:0,duskDone:false,shake:0,flash:0,fade:0,trip:null,raid:[],
-    player:{x:FIRE_X-20,vx:0,dir:-1,hold:0,phase:0,coins:8,cd:0,toss:0,st:0},
+  G={state:'title',t:.6,day:1,day0:0,town,bank:0,side:BIO==='canyon'||Math.random()<.5?1:-1,wx:null,coach:null,outlaw:null,owed:0,bell:false,raided:false,clock:0,dark:0,timeScale:1,cam:FIRE_X-205,nextId:1,deps:0,duskDone:false,shake:0,flash:0,fade:0,trip:null,raid:[],
+    player:{x:FIRE_X-20,vx:0,dir:-1,hold:0,phase:0,coins:8,cd:0,toss:0,st:0,ammo:6,gcd:0,gun:0,wind:1,blown:false,sight:null},
     coins:[],folk:[],drifters:[],bandits:[],parts:[],shots:[],herd:[],fallen:[],prints:[],
     weeds:[[300,26],[900,-21],[1500,24],[2400,-19]].map(([x,vx])=>({x,h:0,vh:0,vx})),
-    b:[mk('store',1108),mk('saloon',1240),mk('sheriff',1400),mk('stable',1590),mk('station',1700),mk('bank',1020),mk('gate',958,-1),mk('gate',1940,1),mk('train',STOP+64),mk('hall',1352),mk('bordello',1490),mk('wire',904,-1),mk('wire',1975,1)],train:null,
+    b:[mk('store',1108),mk('saloon',1240),mk('sheriff',1400),mk('stable',1590),mk('station',EX(1700)),mk('bank',1020),mk('gate',958,-1),mk('gate',EX(1940),1),mk('train',STOP+64),mk('hall',1352),mk('bordello',1490),mk('wire',904,-1),mk('wire',EX(1975),1),
+      mk('doctor',town?1704:-999),mk('church',town?1786:-999),mk('forge',town?1864:-999),mk('telegraph',town?1948:-999),mk('claim',town?CLAIM_X:-999),mk('coach',1196)],train:null,
     hens:[1140,1190,1305].map((x,i)=>({x,dir:1,t:i,run:0,hop:0,mode:'walk'})),
     // two camps close to town and two bigger ones out at the far ends; the far strongboxes hold more
-    boxes:[{x:250,n:6},{x:610},{x:2270},{x:2540,n:6}].map(b=>({open:false,...b})),camps:[{x:120,cap:3},{x:700,cap:2},{x:2210,cap:2},{x:2640,cap:3}],seen:{},
-    perch:[640,655,1085,1100,1118,1462,1474,1612,1790,1803,1818,2262].map((x,i)=>({x0:x,x,h:0,vx:0,vh:0,t:0,id:i}))};
+    boxes:[{x:250,n:6},{x:610},{x:EX(river?2292:2270)},{x:EX(2540),n:6}].map(b=>({open:false,...b})),camps:[{x:120,cap:3},{x:700,cap:2},{x:EX(river?2256:2210),cap:2},{x:EX(2640),cap:3}],seen:{},
+    perch:[640,655,1085,1100,1118,1462,1474,1612,1790,1803,1818,2262].map(EX).map((x,i)=>({x0:x,x,h:0,vx:0,vh:0,t:0,id:i}))};
   G.camps.forEach((c,i)=>{for(let k=0;k<c.cap;k++)drifter(i,false);});
   window.G=G;
 }
@@ -203,7 +238,7 @@ const FONT={S:['###','#..','###','..#','###'],A:['.#.','#.#','###','#.#','#.#'],
   R:['##.','#.#','##.','#.#','#.#'],E:['###','#..','##.','#..','###'],H:['#.#','#.#','###','#.#','#.#'],
   I:['#','#','#','#','#'],B:['##.','#.#','##.','#.#','##.'],D:['##.','#.#','#.#','#.#','##.'],U:['#.#','#.#','#.#','#.#','###'],
   W:['#.#.#','#.#.#','#.#.#','#.#.#','.#.#.'],G:['###','#..','#.#','#.#','###'],C:['###','#..','#..','#..','###'],K:['#.#','#.#','##.','#.#','#.#'],
-  P:['###','#.#','###','#..','#..'],' ':['..','..','..','..','..'],F:['###','#..','##.','#..','#..']};
+  P:['###','#.#','###','#..','#..'],' ':['..','..','..','..','..'],M:['#...#','##.##','#.#.#','#...#','#...#'],Y:['#.#','#.#','.#.','.#.','.#.'],F:['###','#..','##.','#..','#..']};
 const textW=s=>[...s].reduce((n,ch)=>n+FONT[ch][0].length+1,-1);
 function text(x,y,s,c,drop){
   [...s].forEach((ch,k)=>{const g=FONT[ch];
@@ -261,6 +296,8 @@ const sfx={
   chord:()=>{for(const f of [220,277,330,440])tone1(f,1.6,'triangle',.05,f*.995);},
   whistle:()=>{for(const f of [392,494,587])tone1(f,1.2,'triangle',.07,f*.97);},
   sting:()=>{tone1(147,.5,'sawtooth',.07);tone1(139,.7,'sawtooth',.07,0,.35);},
+  bell:()=>{for(const d of [0,.6,1.2]){tone1(659,1.2,'triangle',.13,654,d);tone1(1318,.8,'sine',.05,0,d);}},
+  click:()=>{tone1(1800,.03,'square',.06);tone1(1200,.04,'square',.06,0,.07);},
   fanfare:()=>[523,659,784,1047].forEach((f,i)=>tone1(f,.22,'triangle',.14,0,i*.12))
 };
 // a lonesome, harmonica-ish line over the opening; it has its own volume so skipping can hush it
@@ -356,19 +393,35 @@ const HINTS={
   bounty:'The outlaw is down. The bounty is on the ground.',
   wounded:'The outlaw shot a deputy, who has handed in his badge.',
   ticket:'The train is waiting. Toss 5 coins at the passenger car to ride on to the next ghost town with half your coins.',
-  station1:'The station is finished. Listen for the whistle.'};
+  station1:'The station is finished. Listen for the whistle.',
+  wind:'Your horse is winded and has dropped to its usual pace. Let it walk or stand a moment, or water it at a trough.',
+  reload:'Reloaded. The store keeps your six-shooter full.',
+  dry:'Click. Empty. Ride past the store to reload.',
+  doctor1:'The doctor is in. Townsfolk and deputies hurt in a raid are patched up and back at dawn, not lost.',
+  patched:'The doctor took them in. They will be back on their feet at dawn.',
+  church1:'The church is raised. Toss a coin at it to ring the bell: everyone runs indoors and the deputies man the gates.',
+  bell:'The bell rings out. Everyone is running for cover, and the deputies are at their posts until dawn.',
+  forge1:'The blacksmith is at his anvil. Deputies now shoot further and seldom miss.',
+  forge2:'New shoes for your horse. It gallops faster and holds its wind twice as long.',
+  telegraph1:'The telegraph is working. Each morning it reports which side the night raid will come from.',
+  claim1:'The claim is staked. An old prospector works it and leaves 4 coins there each dawn, unless raiders came from the west that night.',
+  claim2:'A hired gun watches the claim. It pays 7 coins every dawn, whatever the night brings.'};
 let hintTimer=0;
 function hint(k,again,txt){
   if(G.seen[k]&&!again)return;G.seen[k]=1;
   const el=$('hint');el.textContent=txt||HINTS[k];el.classList.add('on');
-  clearTimeout(hintTimer);hintTimer=setTimeout(()=>el.classList.remove('on'),6500);
+  clearTimeout(hintTimer);hintTimer=setTimeout(()=>el.classList.remove('on'),Math.max(6500,el.textContent.length*62));
 }
-let hudCoins=-1,hudDay=-1,hudBank=-2;
+let hudCoins=-1,hudDay=-1,hudBank=-2,hudAmmo=-1,hudNews='';
 function hud(){
   const bk=G.b[5].level?G.bank:-1;
   const bump=el=>{el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump');};
   if(hudCoins!==G.player.coins){hudCoins=G.player.coins;$('coins').textContent=hudCoins;bump($('coins'));}if(hudDay!==G.day){hudDay=G.day;$('day').textContent='Day '+hudDay;}
   if(hudBank!==bk){hudBank=bk;$('vault').hidden=bk<0;$('bankc').textContent=bk;bump($('bankc'));}
+  const p=G.player,nw=news();
+  if(hudAmmo!==p.ammo){hudAmmo=p.ammo;[...$('ammo').children].forEach((el,i)=>el.classList.toggle('on',i<hudAmmo));}
+  if(hudNews!==nw){hudNews=nw;$('news').textContent=nw;}
+  document.body.classList.toggle('armed',G.state==='play'&&!G.trip&&!!p.sight);
 }
 
 // ---------- time of day
@@ -391,7 +444,7 @@ function skyAt(t){
 // ---------- spawning
 function coin(x,h,vx,vh,free){G.coins.push({x,h,vx,vh,st:'air',age:0,claimed:null,free:!!free});}
 function dust(x,h,n,col,up){
-  for(let i=0;i<n;i++)G.parts.push({x:x+rnd(-2,2),h:h+rnd(0,2),vx:rnd(-10,10),vh:up?rnd(8,16):rnd(4,14),life:0,max:rnd(.5,1.1),col:col||'#e2c08c',grav:up?0:-14});
+  for(let i=0;i<n;i++)G.parts.push({x:x+rnd(-2,2),h:h+rnd(0,2),vx:rnd(-10,10),vh:up?rnd(8,16):rnd(4,14),life:0,max:rnd(.5,1.1),col:col||DUSTC,grav:up?0:-14});
 }
 function drifter(camp,fromEdge,x){
   const c=G.camps[camp],side=Math.random()<.5?-1:1,home=c.x+side*rnd(8,17);
@@ -419,6 +472,7 @@ function spawnBandit(side,kind,more){
   G.bandits.push({id:G.nextId++,kind,x:clamp(x,-10,WORLD+10),dir:-side,side,hp,max:hp,state:'raid',loot:0,walk:0,cd:0,cd2:2,hurt:0,vx:0,phase:0,moving:true,rustle:Math.random()<.4,tx:rnd(TOWN[0],TOWN[1])});
 }
 function dawn(){
+  for(const f of G.folk)if(f.sick){f.sick=false;f.hidden=false;f.goal='';}
   for(const f of G.folk)if(f.role==='folk')coin(f.hidden?G.b[1].x+43:f.x,6,rnd(-22,22),rnd(50,75),true);
   for(const b of G.b){
     const d=DEF[b.type];
@@ -428,7 +482,7 @@ function dawn(){
   // grown cattle pay 2 coins a head, left in the pasture; the bank pays a little interest
   if(G.coins.filter(c=>c.st==='ground'&&c.x>PASTURE[0]-20&&c.x<PASTURE[1]+20).length<12)for(const c of G.herd)if(!c.calf)for(let i=0;i<2;i++)coin(c.x,4,rnd(-14,14),rnd(35,60),true);
   for(const c of G.herd)c.calf=0;
-  G.bank+=Math.min(3*G.b[5].level,G.bank>>3);G.raid=[];
+  G.bank+=Math.min(3*G.b[5].level,G.bank>>3);G.raid=[];dawnNew();
   // the bordello draws a newcomer per level, who settles straight in
   for(let i=0;i<G.b[10].level;i++)if(G.folk.length+G.drifters.length<popCap())townie(G.nextId++,G.b[10].x+37+i*5,1);
   arrivals();G.duskDone=false;save();
@@ -437,14 +491,141 @@ function dawn(){
 function dusk(){
   // nights are counted from your arrival, and each town down the line starts rougher
   G.duskDone=true;if(G.b[1].level)arrivals();
-  const ln=G.day-G.day0,d=ln+G.town;if(d<2)return;
-  const n=Math.min(d-1+Math.max(0,d-5)+G.town,12+G.town*2),s0=Math.random()<.5?1:-1,boss=ln>=4&&ln%3===1;
-  for(let i=0;i<n;i++)G.raid.push({t:.74+Math.random()*.09,side:i%2?s0:-s0,kind:d>=4&&i%3===2?'rider':'bandit',hp:d>>2});
+  const ln=G.day-G.day0,d=ln+G.town;if(d<2)return;G.raided=true;
+  const n=Math.min(d-1+Math.max(0,d-5)+G.town,12+G.town*2),s0=G.side,boss=ln>=4&&ln%3===1;
+  for(let i=0;i<n;i++)G.raid.push({t:.74+Math.random()*.09,side:BIO==='canyon'?1:(G.town?i%3:i%2)?s0:-s0,kind:d>=4&&i%3===2?'rider':'bandit',hp:d>>2});
   if(boss)G.raid.push({t:.79,side:s0,kind:'boss',hp:d>>1});
   // from the eighth night, every fifth night a gang of horsemen charges one end of town
   const gang=ln>=8&&ln%5===3;
   if(gang)for(let i=0;i<Math.min(2+(ln>>1),14);i++)G.raid.push({t:.77+Math.random()*.05,side:s0,kind:'rider',hp:d>>2});
   hint(gang?'gang':boss?'boss':'raid',gang||boss,gang?`A gang of horsemen is riding in from the ${s0<0?'west':'east'} tonight. Wire and a strong gate on that side will break the charge.`:undefined);sfx.sting();
+}
+// ---------- the rider's gun and the horse's wind; and what the towns down the line add
+const troughs=()=>[1337,PASTURE[0]+32];
+const RIV=()=>[EX(2162),EX(2198)];
+const slowAt=x=>{if(BIO!=='river')return 1;const r=RIV();return x>r[0]&&x<r[1]?.5:1;};
+const storm=()=>!!G.wx&&G.wx.k==='dust',rainy=()=>!!G.wx&&G.wx.k==='rain',sightK=()=>storm()?.6:1;
+const wxName=()=>!G.wx?'':G.wx.k==='dust'?(BIO==='snow'?'Blizzard':'Dust storm'):BIO==='snow'?'Snowfall':'Rain';
+const hostiles=()=>G.outlaw?[...G.bandits,G.outlaw]:G.bandits;
+function raidPlan(){
+  const ln=G.day-G.day0,d=ln+G.town;
+  return {n:d<2?0:Math.min(d-1+Math.max(0,d-5)+G.town,12+G.town*2),boss:ln>=4&&ln%3===1,gang:ln>=8&&ln%5===3};
+}
+// the line of news in the HUD: what the telegraph knows, a posted bounty, the stage, the weather
+function news(){
+  if(G.state!=='play')return '';
+  const out=[],tg=G.b[16],r=raidPlan(),c=G.coach;
+  if(tg.level&&r.n&&G.t<.72)out.push((r.gang?'Gang':r.boss?'Outlaw':'Raid')+': '+(G.side<0?'west':'east'));
+  if(c&&(c.st==='in'||c.st==='stop'))out.push('Stage in town');
+  if(G.outlaw)out.push('Wanted: '+(G.outlaw.side<0?'west':'east'));
+  if(G.wx)out.push(wxName());
+  return out.join(' · ');
+}
+function updRider(dt,fresh,shoes,d){
+  const p=G.player,slow=Math.abs(p.vx)<50,atT=slow&&troughs().some(x=>Math.abs(x-p.x)<11);
+  if(fresh){
+    if((p.wind-=dt/(shoes?9:5))<=0){p.wind=0;p.blown=true;hint('wind');}
+    if(Math.random()<dt*9)G.parts.push({x:p.x-p.dir*rnd(6,16),h:rnd(4,16),vx:-p.dir*rnd(20,40),vh:0,life:0,max:.35,col:'#fff6dc',grav:0,streak:1});
+  }else if(slow){
+    p.wind=Math.min(1,p.wind+dt*(atT?1.5:rainy()?.5:d?.1:.2));
+    if(atT&&p.wind<1&&Math.random()<dt*14)G.parts.push({x:p.x+p.dir*9+rnd(-2,2),h:5,vx:rnd(-8,8),vh:rnd(8,18),life:0,max:.4,col:'#9fd0e8',grav:-60});
+  }
+  if(p.blown&&p.wind>.35)p.blown=false;
+  // the six-shooter: it picks the nearest raider in reach; riding past the open store fills it again
+  p.gcd-=dt;p.gun-=dt;
+  const rng=118*sightK();let tg=null,bd=rng;
+  for(const q of hostiles()){const dd=Math.abs(q.x-p.x);if(dd<bd){bd=dd;tg=q;}}
+  p.sight=tg;
+  if(tg&&p.ammo>0)hint('gun',false,document.body.classList.contains('touch')?'Raiders in range. Tap the gun button to fire your six-shooter. Six shots, and riding past the store reloads you.':'Raiders in range. Press F to fire your six-shooter. Six shots, and riding past the store reloads you.');
+  const fire=input.fireKey||input.fireTouch||input.padFire||input.fireTap;input.fireTap=false;if(!fire)p.glock=false;   // a tap shorter than a frame still counts
+  if(fire&&!p.glock&&p.gcd<=0){
+    p.glock=true;
+    if(p.ammo<=0){sfx.empty();p.gcd=.3;hint('dry',true);}
+    else{
+      const dir=tg?Math.sign(tg.x-p.x)||p.dir:p.dir,hit=!!tg&&Math.random()<.82;
+      p.ammo--;p.gcd=.38;p.gun=.16;p.gdir=dir;sfx.shot(1);G.shake=Math.max(G.shake,.07);
+      G.shots.push({x0:p.x+dir*9,x1:tg?(hit?tg.x:tg.x+dir*rnd(15,40)):p.x+dir*rng,h:17,h1:tg?(hit?9:3):13,hit});
+      if(hit){tg.hp-=2;tg.hurt=.18;dust(tg.x,8,3,'#d04a3a');if(tg.hp<=0){if(tg===G.outlaw)killOutlaw();else killBandit(tg);}}
+    }
+  }
+  const st=G.b[0];
+  if(p.ammo<6&&st.level&&!st.building&&p.x>st.x-6&&p.x<st.x+st.w+12){p.ammo=6;sfx.click();hint('reload');}
+  const cl=G.b[17];
+  if(G.town&&!cl.level&&Math.abs(p.x-cl.x-15)<45)hint('claim0',false,`An abandoned claim. Stake it for ${costOf(cl)} coins and a prospector will work it for you.`);
+}
+function ringBell(b){G.bell=true;b.ring=3;sfx.bell();hint('bell',true);for(const f of G.folk)f.goal='';}
+function dawnNew(){
+  const ln=G.day-G.day0,cl=G.b[17];
+  // the claim pays at dawn, unless raiders came by from the west and nobody was guarding it
+  if(cl.level){
+    if(cl.level<2&&G.raided&&G.side<0)hint('jumped',true,'Raiders coming in from the west cleaned out the claim overnight. A hired gun would keep it safe.');
+    else if(G.coins.filter(c=>c.st==='ground'&&Math.abs(c.x-cl.x-15)<60).length<10)for(let i=0;i<(cl.level>1?7:4);i++)coin(cl.x+15,5,rnd(-26,26),rnd(40,70),true);
+  }
+  if(G.owed){for(let i=0;i<G.owed;i++)coin(G.b[18].x+19,6,rnd(-30,30),rnd(50,85),true);G.owed=0;}
+  G.bell=false;G.raided=false;G.side=BIO==='canyon'||Math.random()<.5?1:-1;
+  if(!G.town){G.wx=null;return;}
+  if(G.b[16].level&&raidPlan().n)hint('wire',true,`The telegraph: ${raidPlan().gang?'a gang of horsemen':raidPlan().boss?'an outlaw and his men':'raiders'} will come from the ${G.side<0?'west':'east'} tonight.`);
+  // the day's weather: dust hides raiders from the deputies, rain grows the herd and rests the horse
+  const r=Math.random(),pd=BIO==='desert'?.3:.16,pr=BIO==='desert'?.08:.2;
+  G.wx=r<pd?{k:'dust'}:r<pd+pr?{k:'rain'}:null;
+  if(rainy()&&BIO!=='snow'&&G.herd.length&&G.herd.length<12)cow();
+  if(G.wx)hint('wx'+G.wx.k+BIO,false,storm()?`${wxName()}. The deputies cannot see far today, and raiders will be close before anyone spots them.`:BIO==='snow'?'Snowfall. A quiet day.':'Rain. The herd grows on it, and your horse gets its wind back quickly.');
+  if(G.outlaw&&--G.outlaw.days<=0){G.outlaw=null;hint('slipped',true,'The wanted man slipped out of the territory.');}
+  if(!G.outlaw&&G.b[2].level&&ln>=3&&ln%4===3)postBounty();
+  // the stage comes through every third day
+  if(ln%3===2&&!G.coach){
+    G.coach={x:G.b[6].x-380,st:'in',t:0,guard:false,vx:0,ph:0,done:false,fl:0,rob:null,amb:EX(2400)};
+    hint('coach',true,`The stagecoach is coming in from the west. Toss ${costOf(G.b[18])} coins at it while it waters the team by the saloon, and a shotgun guard rides with it.`);
+  }
+}
+// ---------- the stagecoach: in from the west, a stop in town, then out east past the rock arch, where road agents wait
+const coachPay=()=>6+2*G.town;
+const robber=x=>({id:G.nextId++,kind:'bandit',x,dir:1,side:1,hp:2,max:2,state:'flee',loot:4,walk:0,cd:0,cd2:2,hurt:0,vx:0,phase:0,moving:true,rustle:false,tx:x});
+function updCoach(dt){
+  const c=G.coach,slot=G.b[18];if(!c)return;
+  const roll=(tx,v)=>{const dx=tx-c.x;c.vx=Math.sign(dx)*Math.min(v,Math.abs(dx)*2+8);c.x+=c.vx*dt;c.ph+=Math.abs(c.vx)*dt;return Math.abs(dx)<1.5;};
+  if(c.fl>0)c.fl-=dt;
+  if(c.st==='in'){if(roll(slot.x+19,60)){c.st='stop';c.t=0;c.vx=0;}}
+  else if(c.st==='stop'){c.t+=dt;if(c.t>(c.guard?c.gt+1.2:24)||G.t>.5)c.st='out';if(c.guard&&!c.gt)c.gt=c.t;}
+  else if(c.st==='out'){
+    if(!c.done&&c.x>=c.amb){c.st='held';c.t=0;c.vx=0;c.rob=[{dx:44,id:901,up:true,hurt:0},{dx:58,id:902,up:true,hurt:0}];sfx.sting();}
+    else{roll(WORLD+90,74);if(c.x>WORLD+70)G.coach=null;}
+  }else{
+    const t0=c.t;c.t+=dt;for(const r of c.rob)if(r.hurt>0)r.hurt-=dt;
+    if(c.guard){
+      for(const [at,i] of [[.5,0],[1,0],[1.5,1],[2,1]])if(t0<at&&c.t>=at){
+        const r=c.rob[i];c.fl=.08;r.hurt=.18;sfx.shot(near(c.x));G.shots.push({x0:c.x+18,x1:c.x+r.dx,h:29,h1:9,hit:1});
+        if(at===1||at===2){r.up=false;G.fallen.push({x:c.x+r.dx,dir:-1,t:0});dust(c.x+r.dx,4,8);}
+      }
+      if(c.t>2.5){c.st='out';c.done=true;c.rob=null;G.owed=(G.owed||0)+coachPay();hint('coachsafe',true,`The guard saw off a hold-up at the rock arch. The stage line pays you ${coachPay()} coins at dawn.`);}
+    }else if(c.t>1.3){
+      for(const r of c.rob)G.bandits.push(robber(c.x+r.dx));
+      c.rob=null;c.st='out';c.done=true;sfx.box();hint('coachrob',true,'Road agents held up the stage at the rock arch and made off with the strongbox. Shoot them down before they get away and it is yours.');
+    }
+  }
+}
+// ---------- wanted posters: a man with a price on his head, holed up at the old mission or the rock arch
+const OUTLAWS=['Black Jack Tully','Dutch Annie','One-Eye Garza','Mad Dog Riley','The Pecos Kid','Curly Bill Stokes'];
+function postBounty(){
+  const side=Math.random()<.5?-1:1,name=OUTLAWS[Math.floor(Math.random()*OUTLAWS.length)];
+  G.outlaw={x:side<0?420:EX(2360),side,hp:6,max:6,days:3,cd:1.2,hurt:0,dir:-side,id:G.nextId++,name,reward:8+2*G.town,kind:'boss'};
+  hint('wanted',true,`Wanted: ${name}, holed up at the ${side<0?'old mission west':'rock arch east'} of town. ${G.outlaw.reward} coins, dead or alive. Bring a full six-shooter.`);
+}
+function updOutlaw(dt){
+  const o=G.outlaw,p=G.player;if(!o)return;
+  o.hurt-=dt;const dp=p.x-o.x;
+  if(Math.abs(dp)>130)return;
+  o.dir=Math.sign(dp)||1;hint('draw',false,'He has seen you. Shoot first: every hit he lands knocks coins from your purse.');
+  if((o.cd-=dt)>0)return;
+  const hit=Math.random()<(Math.abs(p.vx)>70?.25:.5);o.cd=1.6;
+  G.shots.push({x0:o.x+o.dir*7,x1:hit?p.x:p.x+o.dir*rnd(15,40),h:10,h1:hit?15:4,hit,col:'#ff9a6a'});sfx.shot(near(o.x));
+  if(!hit)return;
+  G.shake=.25;G.flash=.25;sfx.hit();const n=Math.min(2,p.coins);p.coins-=n;for(let i=0;i<n;i++)coin(p.x,14,rnd(-50,50),rnd(60,90),false);
+}
+function killOutlaw(){
+  const o=G.outlaw;G.outlaw=null;dust(o.x,4,10);G.fallen.push({x:o.x,dir:o.dir,t:0,boss:true});
+  G.parts.push({x:o.x,h:14,vx:rnd(-20,20),vh:rnd(40,60),life:0,max:1.5,col:'#16131a',grav:-110,conf:1,hat:1});
+  for(let i=0;i<o.reward;i++)coin(o.x,6,rnd(-26,26),rnd(40,80),true);sfx.fanfare();hint('collected',true,`${o.name} is down. The bounty is on the ground.`);
 }
 // ---------- cinematics: letterbox bars, captions in the lower bar, and a title card
 const cine=on=>document.body.classList.toggle('cine',on),glance=on=>document.body.classList.toggle('peek',on);
@@ -499,9 +680,14 @@ function banner(state,h,tag,btn){
 function startTrip(){G.trip={t:0};G.player.vx=0;sfx.whistle();}
 function nextTown(){
   const p=G.player,carry=clamp((p.coins+G.bank)>>1,8,25),keep={town:G.town+1,day:G.day+1,seen:G.seen};
-  reset();Object.assign(G,keep,{day0:keep.day-1,state:'play',t:.08,fade:1});G.player.coins=carry;G.player.lock=true;
-  const told=`${nice(townName())}. The line ends at another dead town, and this one is rougher. You stepped off with ${carry} coins.`;
-  card(nice(townName()),'The next town down the line',3000,()=>hint('arrive',true,told));sfx.chord();save();
+  reset(keep.town);Object.assign(G,keep,{day0:keep.day-1,state:'play',t:.08,fade:1});G.player.coins=carry;G.player.lock=true;
+  const twist={river:' A river runs east of town, and anything crossing the ford is slowed.',canyon:' The gulch is a dead end to the west, so every raid comes from the east.',
+    snow:' It is deep winter: cattle will not calve, but raiders on foot are slow in the snow.',desert:' Dust storms blow most days out here.'}[BIO];
+  const told=`${nice(townName())}. The line ends at another dead town, and this one is rougher. You stepped off with ${carry} coins.`+twist;
+  card(nice(townName()),'The next town down the line',3000,()=>{
+    hint('arrive',true,told);
+    setTimeout(()=>{if(G.state==='play')hint('bigger',false,'Towns down the line have more to build: a doctor, a church, a blacksmith and a telegraph office, all east of the stable. Watch for the stagecoach and for wanted posters, and there is an old claim to stake out west.');},16000);
+  });sfx.chord();save();
 }
 const gameOver=()=>banner('over','Run out of town',`They caught you without a coin to your name. You lasted ${G.day} ${G.day>1?'days':'day'}.`,'Ride again');
 
@@ -510,7 +696,7 @@ const SAVE='dustfall-save-1';
 function save(){
   if(G.state!=='play'&&G.state!=='won')return;
   if(G.trip)return;
-  try{localStorage.setItem(SAVE,JSON.stringify({v:3,day:G.day,day0:G.day0,town:G.town,bank:G.bank,herd:G.herd.length,t:G.t,dusk:G.duskDone,coins:G.player.coins,px:G.player.x,nextId:G.nextId,deps:G.deps,seen:G.seen,train:!!G.train,
+  try{localStorage.setItem(SAVE,JSON.stringify({v:4,ammo:G.player.ammo,side:G.side,wx:G.wx&&G.wx.k,owed:G.owed,bell:G.bell,out:G.outlaw&&[G.outlaw.side,G.outlaw.hp,G.outlaw.days,G.outlaw.name,G.outlaw.reward],day:G.day,day0:G.day0,town:G.town,bank:G.bank,herd:G.herd.length,t:G.t,dusk:G.duskDone,coins:G.player.coins,px:G.player.x,nextId:G.nextId,deps:G.deps,seen:G.seen,train:!!G.train,
     b:G.b.map(b=>[b.level,b.badges,b.paid,+b.building,b.progress,b.hp]),boxes:G.boxes.map(b=>b.open),
     folk:G.folk.map(f=>[f.id,f.role,Math.round(f.x),f.side,f.slot]),dr:G.drifters.map(d=>[d.id,d.camp,Math.round(d.x)])}));}catch(e){}
 }
@@ -520,9 +706,12 @@ function load(){
   // a save from before the map was widened: everything sat 600 further west and there were only two camps and two strongboxes
   if(!s.v){s.px+=600;s.folk.forEach(f=>f[2]+=600);s.dr.forEach(d=>{d[1]=d[1]?2:1;d[2]+=600;});s.boxes=[false,s.boxes[0],s.boxes[1],false];}
   if(!(s.v>2)){const mv=x=>x>1480?x+100:x;s.px=mv(s.px);s.folk.forEach(f=>f[2]=mv(f[2]));s.dr.forEach(d=>d[2]=mv(d[2]));}
-  reset();G.drifters.length=0;
+  if(!(s.v>3)&&s.town){const mv=x=>x>1695?x+340:x;s.px=mv(s.px);s.folk.forEach(f=>f[2]=mv(f[2]));s.dr.forEach(d=>d[2]=mv(d[2]));}   // later towns grew wider
+  reset(s.town||0);G.drifters.length=0;
   Object.assign(G,{day:s.day,day0:s.day0||0,town:s.town||0,bank:s.bank||0,t:s.t,duskDone:s.dusk,deps:s.deps,seen:s.seen,train:s.train?{x:STOP,v:0,chuff:0,wait:0}:null,cam:clamp(s.px-W/2,0,WORLD-W)});
-  G.player.coins=s.coins;G.player.x=s.px;
+  G.player.coins=s.coins;G.player.x=s.px;if(s.ammo!==undefined)G.player.ammo=s.ammo;
+  if(s.side)G.side=s.side;G.wx=s.wx?{k:s.wx}:null;G.owed=s.owed||0;G.bell=!!s.bell;
+  if(s.out){const [side,hp,days,name,reward]=s.out;G.outlaw={x:side<0?420:EX(2360),side,hp,max:6,days,cd:1.2,hurt:0,dir:-side,id:9000,name,reward,kind:'boss'};}
   s.b.forEach((v,i)=>Object.assign(G.b[i],{level:v[0],badges:v[1],paid:v[2],building:!!v[3],progress:v[4],hp:v[5]||0}));
   for(let i=0;i<(s.herd||0);i++){cow();G.herd[i].calf=0;}
   s.boxes.forEach((o,i)=>G.boxes[i].open=o);
@@ -536,13 +725,14 @@ function slotPos(b,i,n){
   const cols=n>10?7:5,rows=Math.ceil(n/cols),row=Math.floor(i/cols),inRow=row<rows-1?cols:n-cols*(rows-1);
   return {x:Math.round(b.x+b.w/2-(inRow-1)*3)+(i%cols)*6,h:topOf(b,b.level)+22+(rows-1-row)*6};
 }
-const zoneOf=x=>G.b.find(b=>(!DEF[b.type].virt||(G.train&&!G.train.v&&!G.trip))&&x>b.x-6&&x<b.x+b.w+12);
+const live=b=>b.type==='train'?!!G.train&&!G.train.v&&!G.trip:b.type==='coach'?!!G.coach&&G.coach.st==='stop':true;
+const zoneOf=x=>{const c=G.b[18],hit=b=>x>b.x-6&&x<b.x+b.w+12;return live(c)&&hit(c)?c:G.b.find(b=>live(b)&&hit(b));};
 // what a coin tossed from x would pay for: a tool rack, a building's next level, or a bank deposit
 function target(x){
   for(const b of G.b)if(DEF[b.type].tool&&b.level&&Math.abs(x-rackX(b))<9)return b.badges+b.incoming<3?{b,k:'badge'}:null;
   const b=zoneOf(x);if(!b||b.building)return null;
   const cost=costOf(b);
-  return cost&&b.paid+b.incoming<cost?{b,k:'slot'}:b.type==='bank'&&b.level?{b,k:'bank'}:null;
+  return cost&&b.paid+b.incoming<cost?{b,k:'slot'}:b.type==='bank'&&b.level?{b,k:'bank'}:b.type==='church'&&b.level&&!G.bell&&!b.incoming?{b,k:'bell'}:null;
 }
 function tossCoin(tg,fromBank){
   const p=G.player,b=tg&&tg.b,fly=(st,tx,th)=>G.coins.push({x:p.x,h:16,st,b,tx,th,age:0,d0:Math.hypot(tx-p.x,th-16)});
@@ -551,13 +741,16 @@ function tossCoin(tg,fromBank){
   if(!tg)coin(p.x+p.dir*7,15,p.dir*26+p.vx*.4,45,false);
   else if(tg.k==='slot'){const cost=costOf(b),sp=slotPos(b,b.paid+b.incoming,cost);p.lock=++b.incoming+b.paid>=cost;fly('slot',sp.x,sp.h-2);}
   else if(tg.k==='badge'){fly('badge',rackX(b)-2+(b.badges+b.incoming)*3,12);b.incoming++;}
+  else if(tg.k==='bell'){fly('bell',b.x+27,62);b.incoming++;p.lock=true;}
   else{fly('bank',b.x+32,12);if(!p.coins)p.lock=true;}
 }
 function updPlayer(dt){
   // keys and d-pad: hold to gallop. Sticks are analog: a light push walks, a full push gallops straight away
   const p=G.player,a=input.stick||input.padAxis,dig=input.key||input.dpad,d=dig||(Math.abs(a)>.25?Math.sign(a):0);
   if(d){p.dir=d;p.hold+=dt;}else p.hold=0;
-  const want=d*((dig?p.hold>.45:Math.abs(a)>.75)?[78,104,118][G.b[3].level]:40),rate=(!d||want*p.vx<0?950:360)*dt;
+  // a fresh horse gallops flat out for a few seconds, then settles to its usual pace until it has caught its wind
+  const fast=!!d&&(dig?p.hold>.45:Math.abs(a)>.75),shoes=G.b[15].level>1,fresh=fast&&!p.blown;
+  const want=d*(fast?[78,104,118][G.b[3].level]*(fresh?1.28:1)*(shoes?1.06:1):40)*slowAt(p.x),rate=(!d||want*p.vx<0?950:360)*dt;
   if(!d&&Math.abs(p.vx)>50)dust(p.x+Math.sign(p.vx)*9,0,2);
   p.vx+=clamp(want-p.vx,-rate,rate);p.x+=p.vx*dt;
   if(p.x<30){p.x=30;p.vx=0;}if(p.x>WORLD-30){p.x=WORLD-30;p.vx=0;}
@@ -566,7 +759,7 @@ function updPlayer(dt){
   const st=Math.floor(p.phase*4/Math.PI);
   if(st!==p.st){p.st=st;if(sp>10){sfx.hoof(sp>55?1:.6);G.prints.push({x:p.x-p.dir*(st&1?6:-4),t:0});if(G.prints.length>60)G.prints.shift();}}
   if(sp>60&&Math.random()<dt*16)dust(p.x-p.dir*8,0,1);
-  p.cd-=dt;
+  p.cd-=dt;updRider(dt,fresh,shoes,d);
   const drop=input.dropKey||input.dropTouch||input.padDrop;if(!drop)p.lock=false;
   if(drop&&!p.lock&&p.cd<=0){
     const tg=target(p.x),zb=zoneOf(p.x);
@@ -600,9 +793,15 @@ function updCoins(dt){
       G.coins.splice(i,1);sfx.slot();spark(c.tx,c.th+2,3);
       if(c.st==='bank'){G.bank++;hint('deposit');continue;}
       b.incoming--;
+      if(c.st==='bell'){ringBell(b);continue;}
       if(c.st==='badge'){b.badges++;continue;}
       if(++b.paid<costOf(b))continue;
-      if(DEF[b.type].virt){b.paid=0;startTrip();}
+      if(b.type==='coach'){
+        const n=b.paid;b.paid=0;
+        if(G.coach&&!G.coach.done&&!G.coach.guard){G.coach.guard=true;sfx.recruit();spark(c.tx,c.th,8);hint('guard',true,'A shotgun guard climbs up. If the stage gets through, the line pays you at dawn.');}
+        else for(let i=0;i<n;i++)G.coins.push({x:c.tx,h:c.th,st:'back',age:-i*.07});
+      }else if(DEF[b.type].claim){b.paid=0;b.level++;b.pop=.6;confetti(b.x+15,30,12);sfx.fanfare();hint('claim'+b.level,true);save();}
+      else if(DEF[b.type].virt){b.paid=0;startTrip();}
       else{b.building=true;b.progress=0;hint(G.folk.some(f=>f.role==='folk')?'funded':'noworkers');}
     }
   }
@@ -625,12 +824,13 @@ function updDrifters(dt){
   }
 }
 function updFolk(dt){
-  const site=G.b.find(b=>b.building),sal=G.b[1],night=G.dark>.55;
+  const site=G.b.find(b=>b.building),sal=G.b[1],night=G.dark>.55||G.bell;
   const plain=G.folk.filter(f=>f.role==='folk'),ranchers=G.folk.filter(f=>f.role==='rancher').length;
   for(const b of G.b)if(b.badges>plain.filter(f=>f.badge===b).length){
     const c=plain.filter(f=>!f.badge).sort((a,z)=>Math.abs(a.x-rackX(b))-Math.abs(z.x-rackX(b)))[0];if(c)c.badge=b;
   }
   for(const f of G.folk){
+    if(f.sick){f.aim=false;if(!f.hidden&&step(f,G.b[13].x+14,36,dt))f.hidden=true;continue;}   // laid up at the doctor's until morning
     if(f.role==='deputy'){updDeputy(f,dt);continue;}
     const job=f.role==='miner'?'mine':f.role==='rancher'?'ranch':'',goal=f.badge?'badge':site&&!job?'build'+site.x:night?(sal.level?'inside':'fire'):job||'wander';
     if(goal!==f.goal){
@@ -638,7 +838,7 @@ function updFolk(dt){
       f.tx=f.badge?rackX(f.badge):goal==='mine'?MINE-4+(f.id%4)*13:goal==='ranch'?PASTURE[0]+10+(f.id%4)*28:goal==='inside'?sal.x+43:goal==='fire'?FIRE_X+(f.id%2?1:-1)*(9+(f.id>>1)%4*6):site?site.x+8+(f.id%5)*(site.w-16)/4:rnd(TOWN[0],TOWN[1]);
     }
     if(f.hidden)continue;
-    f.at=step(f,f.tx,goal==='wander'?18:goal===job?42:28,dt);f.sit=f.work=f.dig=f.tend=false;
+    f.at=step(f,f.tx,G.bell&&(goal==='inside'||goal==='fire')?52:goal==='wander'?18:goal===job?42:28,dt);f.sit=f.work=f.dig=f.tend=false;
     if(!f.at)continue;
     if(f.badge){
       const b=f.badge;b.badges--;f.badge=null;f.goal='';f.role=DEF[b.type].tool;
@@ -653,7 +853,7 @@ function updFolk(dt){
     }else if(goal==='ranch'){
       // a rancher adds a calf to the herd every so often, up to two head each
       f.tend=true;f.dir=f.id%2?1:-1;
-      if((f.ore=(f.ore||0)+dt)>30){f.ore=0;if(G.herd.length<Math.min(12,ranchers*(1+G.b[3].level))){cow();sfx.moo(near(f.x));hint('calf');}}
+      if((f.ore=(f.ore||0)+dt)>30){f.ore=0;if(BIO!=='snow'&&G.herd.length<Math.min(12,ranchers*(1+G.b[3].level))){cow();sfx.moo(near(f.x));hint('calf');}}
     }else if(goal.startsWith('build')){
       f.dir=1;f.work=true;const before=Math.floor(f.ham);f.ham+=dt*2.2;
       if(Math.floor(f.ham)!==before){sfx.hammer(near(f.x));dust(f.x+3,10,1,'#d9b77a');}
@@ -665,20 +865,20 @@ function updFolk(dt){
 function updDeputy(f,dt){
   f.cd-=dt;f.hidden=false;
   const up=G.b[2].level>1,gW=G.b[6],gE=G.b[7];      // a watchtower gives them more range and a quicker reload
-  let tgt=null,bd=up?215:170;
+  let tgt=null,bd=((up?215:170)+(G.b[15].level?40:0))*sightK();     // the blacksmith's work reaches further; a dust storm cuts it short
   for(const q of G.bandits){const d=Math.abs(q.x-f.x);if(d<bd){bd=d;tgt=q;}}f.aim=!!tgt;
   if(tgt){
     f.dir=Math.sign(tgt.x-f.x)||1;
     if(bd>100&&!step(f,clamp(tgt.x,gW.x+18,gE.x-6),32,dt))return;
     f.moving=false;
     if(f.cd<=0){
-      f.cd=up?.75:1;f.flash=.08;const hit=Math.random()<.7;
+      f.cd=up?.75:1;f.flash=.08;const hit=Math.random()<(G.b[15].level?.86:.7);
       G.shots.push({x0:f.x+f.dir*8,x1:hit?tgt.x:tgt.x+f.dir*rnd(20,50),h:9,hit});sfx.shot(near(f.x));
       if(hit){tgt.hp-=G.b[2].level>2?2:1;tgt.hurt=.18;dust(tgt.x,8,3,'#d04a3a');if(tgt.hp<=0)killBandit(tgt);}
     }
     return;
   }
-  const guard=G.dark>.3,sher=G.b[2];
+  const guard=G.dark>.3||G.bell,sher=G.b[2];
   if(step(f,guard?(f.side<0?gW.x+24+f.slot*9:gE.x-10-f.slot*9):f.px,guard?44:26,dt)){
     if(guard)f.dir=f.side;
     else{f.wait-=dt;if(f.wait<=0){f.px=sher.x+rnd(-20,sher.w+30);f.wait=rnd(2,5);}}
@@ -708,7 +908,7 @@ function banditAct(q,dt,p){
   // barbed wire on their side slows them to a crawl and throws riders, who carry on on foot
   const wr=G.b[q.side<0?11:12],snag=q.state==='raid'&&wr.level&&q.x>wr.x-2&&q.x<wr.x+wr.w+2;
   if(snag&&q.kind==='rider'){q.kind='bandit';dust(q.x,6,12);sfx.crash(near(q.x)*.5);hint('thrown');}
-  const K=KIND[q.kind],sp=K[1]*(snag?.4:1);
+  const K=KIND[q.kind],sp=K[1]*(snag?.4:1)*slowAt(q.x)*(BIO==='snow'&&q.kind!=='rider'?.8:1);
   if(q.state==='flee'){
     step(q,q.side<0?-40:WORLD+40,sp+6,dt);
     if(q.x<-20||q.x>WORLD+20)G.bandits.splice(G.bandits.indexOf(q),1);
@@ -716,10 +916,10 @@ function banditAct(q,dt,p){
   }
   if(q.kind==='boss'&&(q.cd2-=dt)<=0){
     // the outlaw shoots back, and a hit costs a deputy his badge
-    const t=G.folk.filter(f=>f.role==='deputy'&&Math.abs(f.x-q.x)<150).sort((a,z)=>Math.abs(a.x-q.x)-Math.abs(z.x-q.x))[0];
+    const t=G.folk.filter(f=>f.role==='deputy'&&!f.sick&&Math.abs(f.x-q.x)<150).sort((a,z)=>Math.abs(a.x-q.x)-Math.abs(z.x-q.x))[0];
     if(t){
       q.cd2=2.4;G.shots.push({x0:q.x+Math.sign(t.x-q.x)*6,x1:t.x,h:10,hit:1,col:'#ff9a6a'});sfx.shot(near(q.x));
-      if(Math.random()<.3){t.role='folk';t.goal='';t.aim=false;dust(t.x,8,5,'#d04a3a');hint('wounded',true);}
+      if(Math.random()<.3){t.aim=false;dust(t.x,8,5,'#d04a3a');if(G.b[13].level){t.sick=true;hint('patched',true);}else{t.role='folk';t.goal='';hint('wounded',true);}}
     }
   }
   // a standing gate on their side has to be broken down first, unless you are out there with them
@@ -750,11 +950,12 @@ function banditAct(q,dt,p){
     return;
   }
   let f=null;bd=60;
-  for(const k of G.folk)if(k.role!=='deputy'&&!k.hidden&&Math.abs(k.x-q.x)<bd){bd=Math.abs(k.x-q.x);f=k;}
+  for(const k of G.folk)if(k.role!=='deputy'&&!k.hidden&&!k.sick&&Math.abs(k.x-q.x)<bd){bd=Math.abs(k.x-q.x);f=k;}
   if(f){
     if(step(q,f.x,sp,dt)){
-      G.folk.splice(G.folk.indexOf(f),1);drifter(nearCamp(f.x),false,f.x);
-      q.loot++;q.state='flee';dust(f.x,4,6);sfx.empty();hint('mug');
+      if(G.b[13].level){f.sick=true;f.goal='';hint('patched',true);}
+      else{G.folk.splice(G.folk.indexOf(f),1);drifter(nearCamp(f.x),false,f.x);hint('mug');}
+      q.loot++;q.state='flee';dust(f.x,4,6);sfx.empty();
     }
     return;
   }
@@ -771,7 +972,7 @@ function banditAct(q,dt,p){
 function updBuild(dt){
   const p=G.player;
   for(const b of G.b){
-    const cost=costOf(b),gate=DEF[b.type].gate;if(b.shake>0)b.shake-=dt;if(b.pop>0)b.pop-=dt;
+    const cost=costOf(b),gate=DEF[b.type].gate;if(b.shake>0)b.shake-=dt;if(b.pop>0)b.pop-=dt;if(b.ring>0)b.ring-=dt;
     b.short=!b.building&&b.paid>0&&!b.incoming&&(!(p.coins+G.bank)||zoneOf(p.x)!==b)?(b.short||0)+dt:0;
     if(b.short>.45){
       for(let i=0;i<b.paid;i++){const sp=slotPos(b,i,cost);G.coins.push({x:sp.x,h:sp.h-2,st:'back',age:-i*.07});}
@@ -789,6 +990,11 @@ function updBuild(dt){
     if(DEF[b.type].tier&&b.level===1&&!G.b[9].level)setTimeout(()=>{if(!G.b[9].level)hint('center',false,`Buildings can go further once the town centre does. Toss ${costOf(G.b[9])} coins at the campfire in the middle of town.`);},9000);
     if(b.type==='station'){G.train={x:WORLD+70,v:-120,chuff:0,wait:0};sfx.whistle();G.focus=1;glance(true);}   // the camera glances east to watch it come in
     else if(G.b.slice(0,3).every(z=>z.level)&&!G.b[4].level)setTimeout(()=>hint('rail',false,`${nice(townName())} is back on its feet. Fix up the old station for ${costOf(G.b[4])} coins and the railroad will come.`),7000);
+  }
+  const fg=G.b[15];
+  if(fg.level&&!fg.building){
+    if(Math.random()<dt*4)puff(fg.x+11,topOf(fg,fg.level)+24,'#6f6a66');
+    if(G.dark<.5&&Math.random()<dt*.8){sfx.pick2(near(fg.x)*.7);spark(fg.x+43,7,2,'#ffb060');}
   }
   const s=G.b[1];
   if(s.level&&!s.building){
@@ -835,7 +1041,7 @@ function updGuns(dt){
   for(const g of [G.b[6],G.b[7]]){
     if(g.gflash>0)g.gflash-=dt;
     if(g.level<3||g.hp<=0||(g.gcd=(g.gcd||0)-dt)>0)continue;
-    let t=null,bd=200;
+    let t=null,bd=200*sightK();
     for(const q of G.bandits){const d=Math.abs(q.x-g.x-7);if(d<bd){bd=d;t=q;}}
     if(!t)continue;
     const dir=Math.sign(t.x-g.x-7)||g.side,hit=Math.random()<.4;
@@ -869,7 +1075,8 @@ function updWorld(dt){
     if(Math.random()<dt*2.5)G.parts.push({x:x+rnd(-1,1),h:6,vx:rnd(-4,4),vh:rnd(10,20),life:0,max:rnd(.6,1.3),col:Math.random()<.5?'#ffb13b':'#ff7a2a',grav:0,lit:1});
     if(Math.random()<dt*1.5)G.parts.push({x:x+rnd(-1,1),h:9,vx:rnd(3,8),vh:rnd(8,13),life:0,max:rnd(1.2,2.2),col:'#8d8780',grav:0,big:1});
   }
-  if(Math.random()<dt*6)G.parts.push({x:G.cam+rnd(-20,W),h:rnd(1,GY*.5),vx:rnd(30,60),vh:rnd(-2,3),life:0,max:rnd(.8,1.8),col:'#ecd3a4',grav:0,streak:1});
+  if(Math.random()<dt*6)G.parts.push({x:G.cam+rnd(-20,W),h:rnd(1,GY*.5),vx:rnd(30,60),vh:rnd(-2,3),life:0,max:rnd(.8,1.8),col:DUSTC,grav:0,streak:1});
+  if(BIO==='river'){const r=RIV();for(const o of [G.player,...G.bandits])if(o.x>r[0]&&o.x<r[1]&&Math.abs(o.vx)>8&&Math.random()<dt*12)G.parts.push({x:o.x+rnd(-5,5),h:1,vx:rnd(-14,14),vh:rnd(14,30),life:0,max:.45,col:'#cfe8f4',grav:-90});}
   for(let i=G.shots.length-1;i>=0;i--){
     const b=G.shots[i];
     if(b.d===undefined){
@@ -900,7 +1107,7 @@ function update(dt){
       G.raid=G.raid.filter(r=>G.t<r.t||(spawnBandit(r.side,r.kind,r.hp),false));
       G.dark=darkness(G.t);
       updPlayer(dt);updCoins(dt);updDrifters(dt);updFolk(dt);updBandits(dt);
-      if(G.state==='play'){updBuild(dt);updTrain(dt);updHens(dt);updHerd(dt);updGuns(dt);}
+      if(G.state==='play'){updBuild(dt);updTrain(dt);updHens(dt);updHerd(dt);updGuns(dt);updCoach(dt);updOutlaw(dt);}
       const p=G.player;let goal=p.x+p.dir*W*.1-W/2;
       if(G.focus&&G.train&&G.state==='play')goal=clamp(G.train.x+50-W/2,p.x-W+28,p.x-28);   // never so far that you leave the frame
       G.cam+=(clamp(goal,0,WORLD-W)-G.cam)*Math.min(1,dt*(G.focus?1.6:3.5));
@@ -910,26 +1117,37 @@ function update(dt){
 }
 
 // ---------- drawing: far country
-const C={mesa:rgb('#c98f6c'),mesaS:rgb('#ab6f52'),mesaT:rgb('#e6b891'),haze:rgb('#b99294'),hazeS:rgb('#a58086'),plain:rgb('#d6a57c'),dune:rgb('#bd8a57'),duneS:rgb('#a87747'),scrub:rgb('#6f7f4a')};
+const cset=o=>{const r={};for(const k in o)r[k]=rgb(o[k]);return r;};
+const CSET={
+  desert:cset({mesa:'#c98f6c',mesaS:'#ab6f52',mesaT:'#e6b891',haze:'#b99294',hazeS:'#a58086',plain:'#d6a57c',dune:'#bd8a57',duneS:'#a87747',scrub:'#6f7f4a',spire:'#96604a',spireS:'#7a4a36'}),
+  river:cset({mesa:'#b39a70',mesaS:'#8f7854',mesaT:'#d2bb92',haze:'#9fa697',hazeS:'#8a9184',plain:'#b9b27e',dune:'#9aa35e',duneS:'#7f8a4a',scrub:'#55783c',spire:'#5c7a4a',spireS:'#46603a'}),
+  canyon:cset({mesa:'#c56e48',mesaS:'#9c4f35',mesaT:'#ea9c6e',haze:'#b97c6c',hazeS:'#a0655a',plain:'#d2916a',dune:'#c27b4e',duneS:'#a8633c',scrub:'#7c7a42',spire:'#a4553a',spireS:'#82402c'}),
+  snow:cset({mesa:'#97a4b8',mesaS:'#77859a',mesaT:'#f4f8ff',haze:'#b6c1d2',hazeS:'#9caabe',plain:'#dfe6ee',dune:'#e3e9f1',duneS:'#c5cfdc',scrub:'#476a52',spire:'#566e62',spireS:'#40564c'})};
+// street colours per country: base, top edge, second row, two lower bands, dark and light specks, two ruts, kicked-up dust, hoofprints
+const GSET={
+  desert:['#c9995c','#e4bd82','#d3a568','#c08f55','#b0824a','#a67a45','#dbb47a','#b58a50','#a67c46','#e2c08c','#8a6234'],
+  river:['#b99c60','#d8c38a','#c6ad6e','#aa8e56','#977c4a','#8e7440','#cfba82','#a18852','#937a46','#d8c690','#7c6234'],
+  canyon:['#c98558','#e8aa7a','#d59566','#bb7a4e','#a66a42','#9a5e3a','#dfa47c','#b1714a','#a16540','#e4ac86','#8a5230'],
+  snow:['#e6ebf2','#ffffff','#f2f5fa','#d6dee9','#c6d0de','#b9c6d6','#ffffff','#cfd8e4','#c2cddb','#f6f9ff','#9aa8bc']};
 function butte(x,base,w,h,c,cs,cl,seed,detail){
   const b=Math.floor(h*.42),t=h-b;
   for(let k=0;k<b;k++){R(x-k,base-b+k,w+2*k,1,c);R(x+w-3,base-b+k,k+3,1,cs);}
-  R(x,base-h,w,t,c);R(x+w-4,base-h,4,t,cs);R(x,base-h,w-3,1,cl);
+  R(x,base-h,w,t,c);R(x+w-4,base-h,4,t,cs);R(x,base-h,w-3,1,cl);if(BIO==='snow'&&detail)R(x,base-h+1,w-7,1,cl);
   if(hash(seed+1)>.45){const cx=x+3+Math.floor(hash(seed+2)*(w-14));R(cx,base-h-4,6,4,c);R(cx+4,base-h-4,2,4,cs);R(cx,base-h-4,4,1,cl);}
   if(!detail)return;
   for(let j=1;j<4;j++)R(x+1,base-h+Math.floor(t*j/4),w-5,1,cs);
   for(let j=0;j<3;j++)R(x+3+Math.floor(hash(seed+j*5)*(w-10)),base-h+2,1,t-2,cs);
 }
 function drawFar(cam,sb){
-  const h1=css(mixA(C.haze,sb,.55)),h1s=css(mixA(C.hazeS,sb,.5)),o=G.town*37;
+  const h1=css(mixA(C.haze,sb,.55)),h1s=css(mixA(C.hazeS,sb,.5)),o=G.town*37,fk=BIO==='canyon'?2:BIO==='snow'?1.5:1;
   for(let i=0;i<12;i++){
-    const w=50+Math.floor(hash(i+300+o)*70),h=12+Math.floor(hash(i+310+o)*18),x=Math.round(i*90+hash(i+320+o)*50-cam*.07)-40;
+    const w=50+Math.floor(hash(i+300+o)*70),h=Math.round((12+Math.floor(hash(i+310+o)*18))*fk),x=Math.round(i*90+hash(i+320+o)*50-cam*.07)-40;
     if(x<W+20&&x+w>-20)butte(x,GY-8,w,h,h1,h1s,h1,i+300+o,0);
   }
   R(0,GY-9,W,9,css(mixA(C.plain,sb,.3)));
   const c1=css(mixA(C.mesa,sb,.3)),c2=css(mixA(C.mesaS,sb,.25)),c3=css(mixA(C.mesaT,sb,.3));
   for(let i=0;i<16;i++){
-    const w=24+Math.floor(hash(i+9+o)*44),h=16+Math.floor(hash(i+5+o)*30),x=Math.round(i*78+hash(i+o)*40-cam*.17)-20;
+    const w=Math.round((24+Math.floor(hash(i+9+o)*44))*(BIO==='canyon'?1.5:1)),h=Math.round((16+Math.floor(hash(i+5+o)*30))*fk),x=Math.round(i*78+hash(i+o)*40-cam*.17)-20;
     if(x<W+30&&x+w>-30)butte(x,GY-8,w,h,c1,c2,c3,i+o,1);
   }
   // distance haze: the far country fades toward the colour of the horizon
@@ -947,10 +1165,13 @@ function drawPerch(cam){
 }
 // the middle distance: lone rock spires and tall saguaros, hazed toward the sky colour
 function drawSpires(cam,sb){
-  const c=css(mixA([150,96,70],sb,.3)),cs=css(mixA([122,74,54],sb,.28)),g=GY-4,o=G.town*11;
+  const c=css(mixA(C.spire,sb,.3)),cs=css(mixA(C.spireS,sb,.28)),g=GY-4,o=G.town*11,pine=BIO==='snow'||BIO==='river',wh=css(mixA([244,248,255],sb,.25));
   for(let i=0;i<26;i++){
     const x=Math.round(i*132+hash(i+700+o)*90-cam*.28)-30,k=hash(i+710+o);if(x<-30||x>W+30)continue;
-    if(k<.4){        // saguaro
+    if(k<.4&&pine){  // a pine, with snow on its boughs in winter
+      const h=18+Math.floor(hash(i+720)*10),st=Math.floor(h/5);R(x+2,g-4,2,4,cs);
+      for(let j=0;j<4;j++){const w=3+j*2,y=g-h+j*st;R(x+3-j,y,w,st+1,j%2?cs:c);if(BIO==='snow')R(x+3-j,y,w-1,1,wh);}
+    }else if(k<.4){  // saguaro
       const h=15+Math.floor(hash(i+720)*9);R(x,g-h,3,h,c);R(x+2,g-h,1,h,cs);P(x+1,g-h-1,c);
       R(x-4,g-h+7,4,2,c);R(x-4,g-h+3,2,5,c);R(x+3,g-h+10,4,2,c);R(x+5,g-h+5,2,6,c);R(x+6,g-h+5,1,6,cs);
     }else if(k<.75){ // spire
@@ -1049,18 +1270,86 @@ function drawTower(sx){
 // ---------- drawing: street
 function shadow(sx,w){ctx.fillStyle='rgba(64,34,10,.3)';const x=Math.round(sx-w/2);ctx.fillRect(x,GY,w,1);ctx.fillRect(x+1,GY+1,w-2,1);}
 function drawGround(cam){
-  const gh=H-GY;
-  R(0,GY,W,gh,'#c9995c');R(0,GY,W,1,'#e4bd82');R(0,GY+1,W,2,'#d3a568');
+  const gh=H-GY,g=GP,snow=BIO==='snow',tf=BIO==='river'?['#6f8f45','#8fb058','#5a7a3a']:snow?['#9a9c84','#c4c8b4','#84866e']:['#a8974f','#c2b060','#8a8246'];
+  R(0,GY,W,gh,g[0]);R(0,GY,W,1,g[1]);R(0,GY+1,W,2,g[2]);
   const b1=GY+Math.floor(gh*.42),b2=GY+Math.floor(gh*.72),par=Math.floor(cam)&1;
-  R(0,b1,W,gh,'#c08f55');R(0,b2,W,gh,'#b0824a');
-  for(let x=par;x<W;x+=2){P(x,b1-1,'#c08f55');P(x+1,b1,'#c9995c');P(x,b2-1,'#b0824a');P(x+1,b2,'#c08f55');}   // dithered edges between the bands
+  R(0,b1,W,gh,g[3]);R(0,b2,W,gh,g[4]);
+  for(let x=par;x<W;x+=2){P(x,b1-1,g[3]);P(x+1,b1,g[0]);P(x,b2-1,g[4]);P(x+1,b2,g[3]);}   // dithered edges between the bands
   const x0=Math.floor(cam);
   for(let x=x0-2;x<x0+W+2;x++){
     const hs=hash(x),sx=x-cam;
-    if(hs<.1)R(sx,GY+3+Math.floor(hash(x+.5)*(gh-4)),hs<.03?2:1,1,hs<.06?'#a67a45':'#dbb47a');
-    if(hs>.985){const y=GY+5+Math.floor(hash(x+.2)*(gh-9));R(sx,y,3,2,'#9a8570');R(sx,y,2,1,'#b9a48c');P(sx+1,y+2,'#8f6a3c');}
-    if(x%9<5){P(sx,GY+8,'#b58a50');P(sx,GY+15,'#a67c46');}
-    if(hash(x*.37+5)<.035){const sw=Math.round(Math.sin(G.clock*1.6+x)*.6);P(sx,GY-1,'#a8974f');P(sx+1+sw,GY-2,'#c2b060');P(sx+1,GY-1,'#a8974f');P(sx+2+sw,GY-3,'#c2b060');P(sx+2,GY-1,'#8a8246');P(sx+3,GY-1,'#a8974f');}
+    if(hs<.1)R(sx,GY+3+Math.floor(hash(x+.5)*(gh-4)),hs<.03?2:1,1,hs<.06?g[5]:g[6]);
+    if(hs>.985){const y=GY+5+Math.floor(hash(x+.2)*(gh-9));R(sx,y,3,2,'#9a8570');R(sx,y,2,1,snow?'#f4f8ff':'#b9a48c');P(sx+1,y+2,g[5]);}
+    if(x%9<5){P(sx,GY+8,g[7]);P(sx,GY+15,g[8]);}
+    if(hash(x*.37+5)<(BIO==='river'?.09:.035)){const sw=Math.round(Math.sin(G.clock*1.6+x)*.6);P(sx,GY-1,tf[0]);P(sx+1+sw,GY-2,tf[1]);P(sx+1,GY-1,tf[0]);P(sx+2+sw,GY-3,tf[1]);P(sx+2,GY-1,tf[2]);P(sx+3,GY-1,tf[0]);}
+  }
+  if(BIO!=='river')return;
+  // the ford: the river runs across the street toward you, with stepping stones where the trail crosses
+  const r=RIV(),rx=Math.round(r[0]-cam),w=r[1]-r[0];if(rx>W+20||rx+w<-20)return;
+  for(let y=GY;y<H;y++){const k=y-GY,o=Math.round(k*.35);R(rx-o,y,w+o*2,1,k<1?'#9cc9dc':(k+Math.floor(G.clock*3))%6===0?'#3f7f9e':'#4f8fb0');}
+  for(let i=0;i<10;i++){const yy=GY+2+Math.floor(hash(i+40)*(gh-3)),xx=rx+Math.floor(((hash(i+50)*w+G.clock*(6+i))%w+w)%w);R(xx,yy,3,1,'#bfe0ee');}
+  for(const [sx,sy] of [[4,3],[12,5],[20,3],[28,6]]){R(rx+sx,GY+sy,4,2,'#9a8f82');R(rx+sx,GY+sy,3,1,'#b9ad9e');}
+  R(rx-2,GY-1,3,2,tf[0]);R(rx+w,GY-1,3,2,tf[0]);P(rx-1,GY-2,tf[1]);P(rx+w+1,GY-2,tf[1]);
+}
+// the gulch wall that closes the west end of a canyon town
+function drawCliff(cam){
+  const x1=Math.round(56-cam);if(x1<-2)return;
+  const c='#b0603e',cs='#8a4630',cl='#d68a60';
+  for(const [dx,top] of [[0,GY-22],[-8,GY-52],[-17,GY-84],[-27,0]]){R(-4,top,x1+dx+4,GY-top,c);R(x1+dx-3,top,3,GY-top,cs);R(-4,top,x1+dx+1,1,cl);}
+  for(let y=14;y<GY-4;y+=11)R(-4,y,Math.max(0,x1-30+(y%3)*3),1,cs);
+}
+// the old claim: a weathered sign and a spoil heap; staked, a windlass over the shaft; guarded, a lookout beside it
+function drawClaim(sx,b,L){
+  const g=GY,wd='#6a4a2e',dk='#4a3422',rk='#8f7a66';
+  R(sx-3,g-3,13,3,rk);R(sx-1,g-5,9,2,rk);R(sx-1,g-5,6,1,'#b09a83');R(sx+7,g-3,3,3,'#6f5d4d');
+  R(sx+22,g-9,1,9,dk);R(sx+12,g-17,21,8,L?'#c9a468':'#8a7a68');R(sx+12,g-17,21,1,L?'#e0c088':'#a09382');text(sx+13,g-15,'CLAIM',L?'#4a2a1a':'#5e554c',L?0:b.x);
+  if(!L){line(sx+2,g-1,sx+8,g-11,wd);R(sx+6,g-12,4,1,'#8a8f98');return;}
+  R(sx-1,g-18,2,18,wd);R(sx+9,g-18,2,18,wd);R(sx-2,g-19,14,2,dk);R(sx+1,g-15,8,2,'#8a623c');P(sx+11,g-14,'#3a2a1e');line(sx+5,g-13,sx+5,g-6,'#d8cdb0');R(sx+3,g-6,5,3,'#5a3a22');
+  R(sx+2,g-2,7,2,'#17110d');
+  if(L<2)return;
+  const tx=sx+36;R(tx,g-22,1,22,wd);R(tx+9,g-22,1,22,wd);line(tx,g-4,tx+9,g-14,dk);line(tx+9,g-4,tx,g-14,dk);R(tx-2,g-23,14,2,dk);R(tx-2,g-29,1,6,wd);R(tx+11,g-29,1,6,wd);R(tx-2,g-27,14,1,wd);
+  R(tx+4,g-29,3,6,'#d8c9a4');R(tx+4,g-32,3,3,'#e2aa7c');R(tx+2,g-33,7,1,'#b89a66');R(tx+4,g-35,3,2,'#b89a66');line(tx+8,g-35,tx+8,g-25,'#2a1c14');
+}
+function snowCap(sx,top,w,d,fw){
+  const c='#f4f8ff';
+  if(d.barn){for(let k=0;k<13;k++){R(sx-3+k*3,top-k-2,3,1,c);R(sx+w-k*3,top-k-2,3,1,c);}R(sx+33,top-14,w-66,1,c);return;}
+  R(sx-3,top-15,fw+2,2,c);for(let i=1;i<fw;i+=6)P(sx-3+i+(i%4),top-13,c);
+}
+// one horse of the stagecoach's team
+function teamHorse(sx,ph,mv,spr){
+  const top=GY-21-(mv&&Math.sin(ph*2)>0?1:0);
+  for(const [rel,off] of [[-5,0],[3,Math.PI],[-7,1.6],[5,Math.PI+1.6]]){const a=ph+off,up=mv?Math.max(0,Math.sin(a))*2:0;line(sx+rel,GY-9,sx+rel-(mv?Math.cos(a)*3:0),GY-1-up,off>3||off===1.6?'#5a2f1c':'#7a4025',2);}
+  ctx.drawImage(spr.r,Math.round(sx)-10,top);
+}
+function drawCoach(sx,c){
+  const g=GY,a=c.ph/5,mv=Math.abs(c.vx)>3,y=g-(mv&&Math.sin(c.ph*.4)>0?1:0),red='#8f2c23',dk='#3a2416',br='#c9a14a';
+  shadow(sx+18,76);
+  teamHorse(sx+41,c.ph*.085,mv,HORSE2);teamHorse(sx+32,c.ph*.085+1,mv,HORSE);
+  line(sx+13,g-8,sx+30,g-11,dk);line(sx+16,y-19,sx+27,g-14,'#2a1c14');           // the pole and the reins
+  R(sx-13,y-19,26,11,red);R(sx-13,y-19,26,1,'#b0453a');R(sx-13,y-11,26,1,br);R(sx-11,y-8,22,2,dk);
+  R(sx-14,y-21,29,2,dk);R(sx-10,y-24,9,3,'#7a5c3a');R(sx,y-23,6,2,'#5a4636');
+  R(sx-9,y-17,5,5,'#3a5266');R(sx+4,y-17,5,5,'#3a5266');R(sx-3,y-18,6,9,tone(red,.8));P(sx+1,y-13,br);
+  R(sx+13,y-16,5,2,dk);R(sx+13,y-14,2,6,dk);R(sx-17,y-13,4,5,'#5a4636');
+  R(sx+13,y-21,3,5,'#4f7a8c');R(sx+13,y-24,3,3,'#e2aa7c');R(sx+12,y-25,5,1,'#3b2a1e');R(sx+13,y-27,3,2,'#3b2a1e');     // the driver, and the guard beside him if one was hired
+  if(c.guard){R(sx+8,y-26,3,5,'#d8c9a4');R(sx+8,y-29,3,3,'#c98d62');R(sx+7,y-30,5,1,'#b89a66');R(sx+8,y-32,3,2,'#b89a66');line(sx+11,y-25,sx+17,y-29,'#2a1c14');if(c.fl>0){R(sx+18,y-31,3,3,'#ffe58a');P(sx+21,y-30,'#fff');}}
+  wheel(sx-7,g-5,5,a);wheel(sx+8,g-4,4,a);
+  if(c.rob)for(const r of c.rob)if(r.up)person(Math.round(sx+r.dx),{id:r.id,dir:-1,moving:false,walk:0,hurt:r.hurt},'bandit');
+}
+// rain, snow, or a wall of dust across the whole frame
+function drawWeather(){
+  const snow=BIO==='snow',k=G.wx&&G.wx.k,t=G.clock,wrap=(v,n)=>((v%n)+n)%n;
+  if(k==='rain'&&!snow){
+    R(0,0,W,H,'rgba(38,52,86,.2)');ctx.fillStyle='rgba(176,204,236,.6)';
+    for(let i=0;i<70;i++){const x=Math.round(wrap(hash(i+800)*(W+60)-t*70-G.cam*.6,W+60))-30,y=Math.round(wrap(hash(i+830)*H+t*(250+hash(i+860)*90),H));ctx.fillRect(x,y,1,3);ctx.fillRect(x-1,y+3,1,2);}
+    for(let i=0;i<10;i++)P(Math.floor(hash(i+Math.floor(t*12)*7.3)*W),GY+1+Math.floor(hash(i+900)*(H-GY-2)),'rgba(210,230,250,.7)');
+  }
+  if(snow){
+    const n=k==='dust'?150:k==='rain'?100:36,wind=k==='dust'?120:9;ctx.fillStyle='rgba(255,255,255,.85)';
+    for(let i=0;i<n;i++)ctx.fillRect(Math.round(wrap(hash(i+700)*(W+20)+Math.sin(t*.8+i)*6+t*wind-G.cam*.5,W+20))-10,Math.round(wrap(hash(i+730)*H+t*(14+hash(i+760)*18),H)),1,1);
+  }
+  if(k==='dust'){
+    R(0,0,W,H,snow?'rgba(226,234,246,.34)':'rgba(206,160,98,.3)');ctx.fillStyle=snow?'rgba(255,255,255,.4)':'rgba(244,214,160,.34)';
+    for(let i=0;i<46;i++)ctx.fillRect(Math.round(wrap(hash(i+950)*(W+80)+t*(150+hash(i+940)*140)-G.cam,W+80))-40,Math.round(hash(i+960)*H+Math.sin(t*2+i)*3),5+Math.floor(hash(i+970)*9),1);
   }
 }
 function drawCactus(sx,big){
@@ -1216,6 +1505,7 @@ function facade(sx,b,L){
   if(DEF[b.type].gate)return drawGate(sx,b,L);
   if(DEF[b.type].hall)return drawHall(sx,b,L);
   if(DEF[b.type].wire)return drawWire(sx,L);
+  if(DEF[b.type].claim)return drawClaim(sx,b,L);
   const d=DEF[b.type],ruin=!L,w=d.w,h=topOf(b,L),g=GY,top=g-h,ff=12,seed=b.x;
   const wall=ruin?'#857a6c':d.wall,trim=ruin?'#62574c':d.trim,roof=ruin?'#62574c':d.roof,dk=tone(wall,.6),hole='#241c18',board='#a09382';
   if(b.type==='saloon'&&!ruin){R(sx+w-17,top-23,7,13,'#7c3b2c');R(sx+w-18,top-24,9,2,'#5e2c21');P(sx+w-15,top-19,'#9a5140');P(sx+w-13,top-15,'#9a5140');}
@@ -1275,6 +1565,7 @@ function facade(sx,b,L){
   if(ruin){
     if(!d.barn){R(sx-5,g-26,Math.round(w*.45),2,dk);line(sx+w*.45-5,g-25,sx+w*.62,g-18,dk);R(sx-3,g-24,2,24,dk);R(sx+w-6,g-11,2,11,dk);}
     line(sx+w-16,g-2,sx+w-3,g-8,board);R(sx-6,g-2,w+12,2,dk);P(sx+4,g-3,'#8a8246');P(sx+5,g-4,'#a8974f');P(sx+w-9,g-3,'#8a8246');
+    if(BIO==='snow')snowCap(sx,top,w,d,fw-4);
     return;
   }
   if(L>2){      // third level: a flag on the roof and bunting along the front
@@ -1299,10 +1590,29 @@ function facade(sx,b,L){
     R(sx+w+6,g-2,10,2,'#8a623c');R(x,g-27,1,25,'#3a3a44');
     if(G.train)line(x+1,g-26,x+6,g-21,'#c0392b',2);else{R(x+1,g-27,6,2,'#c0392b');R(x+5,g-27,2,2,'#f4ecd6');}
   }
+  if(b.type==='church'){     // a belfry and a cross; the bell swings when it is rung
+    const cx=sx+(w>>1),ty=top-ff-2,sw=b.ring>0?Math.round(Math.sin(G.clock*14)*2):0;
+    R(cx-7,ty-16,14,16,wall);R(cx+4,ty-16,3,16,tone(wall,.8));R(cx-8,ty-17,16,1,trim);R(cx-4,ty-13,8,9,'#2a1d16');
+    R(cx-2+sw,ty-12,4,4,'#c9a14a');P(cx+sw*2,ty-8,'#8a6a2a');
+    for(let k=0;k<9;k++)R(cx-9+k,ty-18-k,18-k*2,1,k%2?roof:tone(roof,.85));
+    R(cx,ty-36,1,10,'#f4ecd6');R(cx-2,ty-34,5,1,'#f4ecd6');
+  }
+  if(b.type==='forge'){      // a chimney, the anvil out front, and the fire showing through the door
+    R(sx+7,top-ff-11,8,11,'#5a4a42');R(sx+6,top-ff-13,10,2,'#3a302c');R(sx+13,top-ff-11,2,11,'#463a34');
+    R(sx+w+5,g-7,8,2,'#3a3a44');R(sx+w+7,g-5,4,3,'#2a2a30');R(sx+w+6,g-2,6,2,'#2a2a30');
+    ctx.globalAlpha=.6+.4*Math.sin(G.clock*5);R(sx+d.door.x+3,g-9,d.door.w-6,7,'#ff8a3a');R(sx+d.door.x+5,g-7,d.door.w-10,4,'#ffd36a');ctx.globalAlpha=1;
+  }
+  if(b.type==='telegraph'){  // a mast and a wire; a red pennant flies on the side tonight's raid will come from
+    const mx=sx+12,my=top-ff-2;R(mx,my-18,1,18,'#3a2a1e');R(mx-4,my-13,9,1,'#3a2a1e');P(mx-4,my-14,'#9fb7b0');P(mx+4,my-14,'#9fb7b0');line(mx+4,my-13,sx+w+3,my-5,'#3d3028');
+    if(L===b.level&&G.state==='play'&&G.t<.72&&raidPlan().n){const sd=G.side;for(let k=0;k<5;k++)R(mx+(sd>0?1+k:-1-k),my-18+(k>>1),1,5-k,'#c0392b');}
+  }
+  if(b.type==='sheriff'&&G.outlaw){R(sx+22,g-21,9,11,'#f0e6c8');R(sx+22,g-21,9,2,'#b53a2e');R(sx+25,g-17,3,3,'#5a4636');R(sx+24,g-13,5,1,'#5a4636');R(sx+(G.outlaw.side<0?23:27),g-11,3,1,'#b53a2e');}   // a fresh poster
+  if(BIO==='snow')snowCap(sx,top,w,d,w+4);
 }
 function lights(sx,b,a){
   const d=DEF[b.type],g=GY,L=b.level;
   if(d.virt||d.wire)return;
+  if(d.claim){if(L&&a>0)glow(sx+5,g-10,14,'255,200,110',.35*a);return;}
   if(d.hall){if(L>1&&a>0){ctx.globalAlpha=a;R(sx+7,g-56,11,11,'#ffe9a8');const h=G.t*Math.PI*2-Math.PI/2;line(sx+12,g-51,sx+12+Math.cos(h)*4,g-51+Math.sin(h)*4,'#24160f');ctx.globalAlpha=1;glow(sx+12,g-51,16,'255,220,140',.35*a);}return;}
   if(d.gate){if(L>1&&a>0){const lx=sx+7-b.side*11;ctx.globalAlpha=a;R(lx-1,g-26,3,3,'#ffe08a');ctx.globalAlpha=1;glow(lx,g-24,15,'255,200,110',.4*a);}return;}
   if(d.tool&&L)for(let i=0;i<b.badges;i++){
@@ -1316,7 +1626,7 @@ function lights(sx,b,a){
   ctx.globalAlpha=a;
   for(const q of wins(b,L)){
     const x=sx+q.x,y=g+q.y;
-    R(x,y,q.w,q.h,b.type==='store'?'#e0aa5a':b.type==='bordello'?'#ff9d8f':'#ffcf6b');
+    R(x,y,q.w,q.h,b.type==='store'?'#e0aa5a':b.type==='bordello'?'#ff9d8f':b.type==='forge'?'#ff9a4a':'#ffcf6b');
     if(q.door)continue;
     if(q.bars)for(let i=2;i<q.w;i+=3)R(x+i,y,1,q.h,'#1c222b');
     else if(q.big){for(let i=2;i<q.w-3;i+=4){const k=(i>>1)%4;R(x+i,y+q.h-6-k%3,3,6+k%3,'#7a4a20');}R(x+(q.w>>1),y,1,q.h,'#6a4a2c');}
@@ -1422,6 +1732,7 @@ function drawHorse(sx,p,hs,rs,c1,c2){
   ctx.drawImage(d>0?(rs||RIDER).r:(rs||RIDER).l,Math.round(sx)-(d>0?4:3),rt);
   if(!rs&&mv)for(let i=1;i<=(gal?4:2);i++)P(Math.round(sx)-d*(2+i)-(d<0?1:0),rt+4+(Math.sin(G.clock*16-i*1.3)>0?0:1),i>2?'#8f2c23':'#b53a2e');   // his scarf streams behind
   if(p.toss>0){R(sx+d*2-(d<0?1:0),rt+1,1,5,'#e2aa7c');P(sx+d*2-(d<0?1:0),rt+5,'#3a2a20');}
+  if(p.gun>0){const gd=p.gdir||d,x=Math.round(sx);R(x+(gd>0?3:-7),rt+6,5,1,'#2a1c14');P(x+(gd>0?3:-3),rt+6,'#e2aa7c');if(p.gun>.09){R(x+(gd>0?8:-10),rt+5,3,3,'#ffe58a');P(x+(gd>0?11:-11),rt+6,'#fff');}}
 }
 function drawCoin(sx,y,c){
   if(c.st==='ground'){
@@ -1451,7 +1762,7 @@ function draw(){
   const cam=Math.round(G.cam+(G.shake>0?rnd(-2,2)*G.shake*4:0)),dark=G.dark,[st,sb]=skyAt(G.t),p=G.player;
   ctx.clearRect(0,0,W,H);
   drawFar(cam,sb);drawSpires(cam,sb);drawMid(cam,sb);drawBirds(cam);
-  drawPoles(cam);drawPerch(cam);drawMission(392-cam);drawArch(2330-cam);drawMine(MINE-cam);drawWindmill(992-cam);drawTower(1206-cam);
+  drawPoles(cam);drawPerch(cam);drawMission(392-cam);drawArch(EX(2330)-cam);drawMine(MINE-cam);drawWindmill(992-cam);drawTower(1206-cam);if(BIO==='canyon')drawCliff(cam);
   for(const b of G.b){
     const sx=b.x-cam;if(sx>W+20||sx+b.w<-20||DEF[b.type].virt)continue;
     if(DEF[b.type].wall||b.level)shadow(sx+b.w/2,b.w+(DEF[b.type].wall?14:4));facade(sx,b,b.level);
@@ -1481,9 +1792,9 @@ function draw(){
   drawRail(cam);drawPasture(cam);
   G.camps.forEach(c=>{drawCamp(c.x-cam);drawFireBase(c.x-cam,1);});
   if(!tier)drawFireBase(FIRE_X-cam);
-  for(const q of G.prints){const x=Math.round(q.x-cam);if(x<-2||x>W+2)continue;ctx.globalAlpha=.4*(1-q.t/9);R(x,GY+2,2,1,'#8a6234');P(x,GY+3,'#8a6234');}
+  for(const q of G.prints){const x=Math.round(q.x-cam);if(x<-2||x>W+2)continue;ctx.globalAlpha=.4*(1-q.t/9);R(x,GY+2,2,1,GP[10]);P(x,GY+3,GP[10]);}
   ctx.globalAlpha=1;
-  for(const [x,type,v] of PROPS)if(x-cam>-40&&x-cam<W+10)drawProp(x-cam,type,v);
+  for(const [x0,type,v] of PROPS){const x=EX(x0);if(x-cam>-40&&x-cam<W+10&&!(G.town&&(x0===520||x0===556))&&!(BIO==='river'&&x0===2175))drawProp(x-cam,type,v);}
   for(const b of G.boxes)drawBox(b.x-cam,b.open);
   for(const w of G.weeds){
     const x=Math.round(w.x-cam),y=GY-7-Math.round(w.h),f=Math.floor(w.x/4)&3;
@@ -1520,10 +1831,17 @@ function draw(){
     if(f.t<.18)R(x-2+f.dir,GY-7,4,6,c);else{R(x-4,GY-2,8,2,c);R(x-f.dir*5-(f.dir<0?0:1),GY-3,2,2,'#e2aa7c');P(x+f.dir*2,GY-1,'#c0392b');}
   }
   ctx.globalAlpha=1;
+  if(G.coach){const sx=Math.round(G.coach.x-cam);if(sx>-70&&sx<W+30)drawCoach(sx,G.coach);}
+  {const cl=G.b[17],sx=Math.round(cl.x+17-cam);if(cl.level&&dark<.6&&sx>-10&&sx<W+10)person(sx,{id:3,dir:-1,moving:false,walk:0,dig:true,ham:G.clock*1.6},'miner');}   // the old prospector at his claim
   for(const c of G.herd)drawCow(Math.round(c.x-cam),c);
   for(const d of G.drifters)person(Math.round(d.x-cam),d,'drifter');
   for(const f of G.folk)if(!f.hidden)person(Math.round(f.x-cam),f,f.role);
-  for(const q of G.bandits){const sx=Math.round(q.x-cam);if(q.kind==='rider')drawHorse(sx,q,HORSE2,RIDER2,'#1f1c22','#2e2a30');else person(sx,q,q.kind);}
+  for(const q of G.bandits){
+    const sx=Math.round(q.x-cam);if(storm())ctx.globalAlpha=Math.abs(q.x-p.x)<70?1:.35;     // dust hides them until they are close
+    if(q.kind==='rider')drawHorse(sx,q,HORSE2,RIDER2,'#1f1c22','#2e2a30');else person(sx,q,q.kind);
+  }
+  ctx.globalAlpha=1;
+  if(G.outlaw){const sx=Math.round(G.outlaw.x-cam);if(sx>-20&&sx<W+20)person(sx,G.outlaw,'boss');}
   if(G.state==='play'&&!G.trip||G.state==='intro'&&G.intro.t>3.6)drawHorse(p.x-cam,p);
   coat('16,14,54',.3*dark);ctx=main;ctx.drawImage(ppl,0,0);
   if(!tier)drawFire(FIRE_X-cam,0);G.camps.forEach((c,i)=>drawFire(c.x-cam,2+i*2));
@@ -1555,8 +1873,15 @@ function draw(){
     if(d.tool&&b.level&&Math.abs(p.x-rackX(b))<9)for(let i=0;i<3;i++)slot(Math.round(rackX(b)-cam)-6+i*6,GY-26,i<b.badges+b.incoming,i===b.badges+b.incoming);
     if(d.gate&&b.level&&b.hp<GHP[b.level])bar(b.x-cam,GY-topOf(b,b.level)-10,b.hp/GHP[b.level]);
   }
-  for(const q of G.bandits)if(q.kind==='boss'){const x=Math.round(q.x-cam)-7;R(x-1,GY-24,16,3,'#24160f');R(x,GY-23,Math.round(14*q.hp/q.max),1,'#e0633c');}
-  if(Math.sin(G.clock*9)>0)for(const side of [-1,1])if(G.bandits.some(q=>side<0?q.x-cam<4:q.x-cam>W-4)){
+  if(play){
+    // the horse's wind while it is short, a sight on whoever the six-shooter would hit, and the bell's coin slot
+    const px=Math.round(p.x-cam),sg=p.sight,ch=G.b[14];
+    if(p.wind<.995){R(px-8,GY-38,16,3,'#24160f');R(px-7,GY-37,Math.round(14*p.wind),1,p.blown?'#e0633c':'#8fd0e8');}
+    if(sg&&p.ammo>0){const x=Math.round(sg.x-cam),y=GY-8,c=blink?'#ff5a3c':'#ffd0a0';R(x-6,y,3,1,c);R(x+4,y,3,1,c);R(x,y-6,1,3,c);R(x,y+4,1,3,c);}
+    if(tg&&tg.k==='bell')slot(Math.round(ch.x+27-cam),GY-topOf(ch,1)-56,ch.incoming>0,true);
+  }
+  for(const q of hostiles())if(q.kind==='boss'){const x=Math.round(q.x-cam)-7;R(x-1,GY-24,16,3,'#24160f');R(x,GY-23,Math.round(14*q.hp/q.max),1,'#e0633c');}
+  if(!storm()&&Math.sin(G.clock*9)>0)for(const side of [-1,1])if(G.bandits.some(q=>side<0?q.x-cam<4:q.x-cam>W-4)){
     const x=side<0?2:W-3,y=GY-9;for(let k=0;k<4;k++)R(x-side*k,y-k,1,k*2+1,'#ff5a3c');
   }
   // a low sun blooms and streaks across the frame
@@ -1565,6 +1890,7 @@ function draw(){
     if(low>.12){glow(x,y,46+low*30,'255,170,90',.2*low);glow(x,y,W*.55,'255,190,120',.13*low,.07);}
   }
   drawFore(cam);
+  if(G.wx||BIO==='snow')drawWeather();
   const vg=ctx.createRadialGradient(W/2,H*.45,H*.45,W/2,H*.45,Math.max(W,H)*.75);vg.addColorStop(0,'rgba(20,10,6,0)');vg.addColorStop(1,'rgba(20,10,6,.42)');
   ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
   if(G.flash>0)R(0,0,W,H,`rgba(200,40,30,${G.flash*.8})`);
@@ -1608,43 +1934,48 @@ function resize(){
   ctx.imageSmoothingEnabled=false;
 }
 reset();addEventListener('resize',resize);resize();
-window.dustfall={costOf,target,rackX};   // for the test scripts
+window.dustfall={costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
 
 // ---------- input
-const KEYS={ArrowLeft:-1,a:-1,A:-1,ArrowRight:1,d:1,D:1};
+const KEYS={ArrowLeft:-1,a:-1,A:-1,ArrowRight:1,d:1,D:1},FIREKEYS=['f','F','x','X','Enter','ArrowUp','w','W'];
 const held=new Set();
 addEventListener('keydown',e=>{
   if(G.state==='intro'){e.preventDefault();if(G.intro.t>.6)endIntro(true);return;}
   if(G.state!=='play'){if(e.key==='Enter'||e.key===' '){e.preventDefault();start();}return;}
   if(KEYS[e.key]){held.add(e.key);input.key=KEYS[e.key];e.preventDefault();}
   if(e.key===' '||e.key==='ArrowDown'||e.key==='s'||e.key==='S'){input.dropKey=true;e.preventDefault();}
+  if(FIREKEYS.includes(e.key)){input.fireKey=true;e.preventDefault();}
 });
 addEventListener('keyup',e=>{
   if(KEYS[e.key]){held.delete(e.key);const last=[...held].pop();input.key=last?KEYS[last]:0;}
   if(e.key===' '||e.key==='ArrowDown'||e.key==='s'||e.key==='S')input.dropKey=false;
+  if(FIREKEYS.includes(e.key))input.fireKey=false;
 });
-addEventListener('blur',()=>{held.clear();input.key=0;input.dropKey=false;});
+addEventListener('blur',()=>{held.clear();input.key=0;input.dropKey=input.fireKey=false;});
 const pad=$('pad'),knob=$('knob'),toss=$('toss');let padId=null;
 const padSet=e=>{const r=pad.getBoundingClientRect(),dx=clamp(e.clientX-r.left-r.width/2,-34,34);input.stick=dx/34;knob.style.transform=`translateX(${dx}px)`;};
 pad.addEventListener('pointerdown',e=>{padId=e.pointerId;try{pad.setPointerCapture(padId);}catch(_){}padSet(e);e.preventDefault();});
 pad.addEventListener('pointermove',e=>{if(e.pointerId===padId)padSet(e);});
 for(const ev of ['pointerup','pointercancel'])pad.addEventListener(ev,e=>{if(e.pointerId===padId){padId=null;input.stick=0;knob.style.transform='';}});
 toss.addEventListener('pointerdown',e=>{input.dropTouch=true;toss.classList.add('on');e.preventDefault();});
-for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});addEventListener('contextmenu',e=>e.preventDefault());
-const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Push the stick to ride, further to gallop. Tap the coin to toss one.';};
+for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});
+const fireB=$('fire');
+fireB.addEventListener('pointerdown',e=>{input.fireTouch=input.fireTap=true;fireB.classList.add('on');e.preventDefault();});
+for(const ev of ['pointerup','pointercancel','pointerleave'])fireB.addEventListener(ev,()=>{input.fireTouch=false;fireB.classList.remove('on');});addEventListener('contextmenu',e=>e.preventDefault());
+const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('how').textContent='Push the stick to ride, further to gallop. Tap the coin to toss one, the gun to fire.';};
 if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||navigator.maxTouchPoints>0)touchy();
 addEventListener('touchstart',touchy,{once:true,passive:true});
 // stop long-press text selection, the copy bubble, and double-tap or pinch zoom; real buttons still get their taps
 const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#mute'))e.preventDefault();};
 for(const ev of ['touchstart','touchmove','touchend','gesturestart','selectstart','dblclick'])document.addEventListener(ev,quiet,{passive:false});
-// physical controller: left stick or d-pad rides, A / B / X or right trigger tosses, A or Start begins
+// physical controller: left stick or d-pad rides, A / X or right trigger tosses, B / Y or right bumper fires, A or Start begins
 let padWas=false;
 function pollPad(){
   const gp=navigator.getGamepads?[...navigator.getGamepads()].find(g=>g&&g.connected):null,on=i=>!!(gp&&gp.buttons[i]&&gp.buttons[i].pressed);
-  input.padAxis=gp&&Math.abs(gp.axes[0])>.25?gp.axes[0]:0;input.dpad=on(15)-on(14);input.padDrop=[0,1,2,7].some(on);
+  input.padAxis=gp&&Math.abs(gp.axes[0])>.25?gp.axes[0]:0;input.dpad=on(15)-on(14);input.padDrop=[0,2,7].some(on);input.padFire=[1,3,5].some(on);
   const go=on(0)||on(9);if(go&&!padWas){if(G.state==='intro')endIntro(true);else if(G.state!=='play')start();}padWas=go;
 }
-addEventListener('gamepadconnected',()=>{if(G.state==='title')$('how').textContent='Controller: stick or d-pad to ride, A to toss a coin.';});
+addEventListener('gamepadconnected',()=>{if(G.state==='title')$('how').textContent='Controller: stick or d-pad to ride, A to toss a coin, B to fire.';});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').blur();});
 
 // ---------- start and loop
@@ -1655,7 +1986,7 @@ function start(keep){
   initAudio();if(AC&&AC.state==='suspended')AC.resume();
   if(fresh)return beginIntro();
   if(G.state==='won')hint('ticket',true);else if(keep!==true){G.t=.08;hint('start');}
-  G.state='play';G.player.lock=true;input.key=input.stick=0;input.dropKey=input.dropTouch=false;held.clear();
+  G.state='play';G.player.lock=true;input.key=input.stick=0;input.dropKey=input.dropTouch=input.fireKey=input.fireTouch=false;held.clear();
   $('title').hidden=true;document.body.classList.remove('title');
 }
 $('go').addEventListener('click',start);
