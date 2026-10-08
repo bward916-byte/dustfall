@@ -319,10 +319,11 @@ function burst(d,v){
   g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);s.connect(g);g.connect(master);s.start(t,Math.random());s.stop(t+d+.02);
 }
 const near=x=>clamp(1-Math.abs(x-G.player.x)/240,0,1);
+let pickT=0,pickN=0;
 const sfx={
   toss:()=>tone1(900,.08,'square',.05,1400),
   clink:v=>tone1(2100,.06,'triangle',.07*v),
-  pick:()=>{tone1(1300,.07,'square',.06);tone1(1900,.1,'square',.06,0,.06);},
+  pick:()=>{const t=performance.now();pickN=t-pickT<450?Math.min(pickN+1,9):0;pickT=t;const k=1+pickN*.06;tone1(1300*k,.07,'square',.06);tone1(1900*k,.1,'square',.06,0,.06);},
   slot:()=>tone1(1500,.12,'triangle',.1,2000),
   recruit:()=>{tone1(520,.1,'triangle',.12);tone1(780,.16,'triangle',.12,0,.09);},
   hammer:v=>tone1(240,.05,'square',.07*v,90),
@@ -347,6 +348,8 @@ const sfx={
   howl:()=>{tone1(380,.5,'sine',.03,640);tone1(640,1.4,'sine',.035,430,.48);},
   rooster:()=>{tone1(700,.11,'square',.03,760);tone1(900,.11,'square',.03,940,.13);tone1(820,.09,'square',.03,0,.26);tone1(1050,.4,'square',.03,760,.36);},
   whinny:()=>{tone1(900,.16,'sawtooth',.035,1500);tone1(1400,.34,'sawtooth',.035,620,.15);},
+  morn:()=>({desert:[392,494,587,784],river:[440,554,659,880],canyon:[330,392,494,659],snow:[523,659,784,1047]})[BIO].forEach((f,i)=>tone1(f,.55,'triangle',.05,f*.995,i*.17)),
+  chime:()=>{for(const d of [0,.75])tone1(523,1.2,'triangle',.08*near(FIRE_X),520,d);},
   fanfare:()=>[523,659,784,1047].forEach((f,i)=>tone1(f,.22,'triangle',.14,0,i*.12))
 };
 // a lonesome, harmonica-ish line over the opening; it has its own volume so skipping can hush it
@@ -371,7 +374,7 @@ function pnote(m,t,d,v){
     const og=AC.createGain();og.gain.value=type==='square'?.18:1;o.connect(og);og.connect(g);o.start(t);o.stop(t+d+.02);
   }
 }
-let pianoVol=0,nextChirp=0,nextHowl=0;
+let pianoVol=0,nextChirp=0,nextHowl=0,nextDrum=0,drumBeat=0;
 function updAudio(){
   const s=G.b[1],open=s.level>0&&!s.building&&G.state==='play';
   pianoVol=open?clamp(1-Math.abs(s.x+43-G.player.x)/280,0,1):0;
@@ -389,6 +392,9 @@ function updAudio(){
       if(hash(i*1.7)>.18)pnote(root+12+RH[i%16],nextNote,.16,.4);
     }
     noteIdx++;nextNote+=.19;
+  }
+  if(G.state==='play'&&G.bandits.some(q=>q.state==='raid')){       // a low drum for as long as raiders are on the field
+    const t=AC.currentTime;if(t>nextDrum){nextDrum=t+.6;tone1(64,.2,'sine',.11,38);if(drumBeat++%4===2)tone1(96,.12,'sine',.07,50,.3);}
   }
   if(G.state==='play'&&G.dark>.6&&!G.wx&&BIO!=='snow'){
     const t=AC.currentTime;
@@ -531,12 +537,13 @@ function spawnBandit(side,kind,more){
 function dawn(){
   {const n=G.night;G.report=n&&n.n?`Last night: ${n.n} raiders, ${n.down} shot down, ${n.gates?n.gates+(n.gates>1?' gates':' gate')+' broken':'the gates held'}${n.lost?', '+n.lost+' robbed':''}`:'';G.night=null;}
   if(G.b[0].level)sfx.rooster();
+  sfx.morn();
   for(const f of G.folk)if(f.sick){f.sick=false;f.hidden=false;f.goal='';}
   for(const f of G.folk)if(f.role==='folk')coin(f.hidden?G.b[1].x+43:f.x,6,rnd(-22,22),rnd(50,75),true);
   for(const b of G.b){
     const d=DEF[b.type];
     if(b.level&&d.pay&&!b.robbed)for(let i=0;i<d.pay*b.level;i++)coin(b.x+d.door.x+7,5,rnd(-40,40),rnd(55,90),true);
-    b.robbed=false;if(d.gate)b.hp=GHP[b.level];
+    b.robbed=false;if(d.gate){b.hp=GHP[b.level];b.pay=0;}
   }
   // grown cattle pay 2 coins a head, left in the pasture; the bank pays a little interest
   if(G.coins.filter(c=>c.st==='ground'&&c.x>PASTURE[0]-20&&c.x<PASTURE[1]+20).length<12)for(const c of G.herd)if(!c.calf)for(let i=0;i<2;i++)coin(c.x,4,rnd(-14,14),rnd(35,60),true);
@@ -613,6 +620,10 @@ function updRider(dt,fresh,shoes,d){
   }
   const st=G.b[0];
   if(p.ammo<6&&st.level&&!st.building&&p.x>st.x-6&&p.x<st.x+st.w+12){p.ammo=6;sfx.click();hint('reload');}
+  if(G.dark>.3){const z=zoneOf(p.x);if(z&&DEF[z.type].gate&&z.level&&z.hp>0){
+    if(z.hp<GHP[z.level])hint('mend0',false,'After dark, coins tossed at a damaged gate go to patching it.');
+    else if(z.level>2)hint('hire0',false,'After dark, coins tossed at a gatehouse hire riflemen for the night: 4 coins a man, up to three.');
+  }}
   const cl=G.b[17];
   if(G.town&&!cl.level&&Math.abs(p.x-cl.x-15)<45)hint('claim0',false,`An abandoned claim. Stake it for ${costOf(cl)} coins and a prospector will work it for you.`);
 }
@@ -625,12 +636,13 @@ function dawnNew(){
     else if(G.coins.filter(c=>c.st==='ground'&&Math.abs(c.x-cl.x-15)<60).length<10)for(let i=0;i<(cl.level>1?7:4);i++)coin(cl.x+15,5,rnd(-26,26),rnd(40,70),true);
   }
   if(G.owed){for(let i=0;i<G.owed;i++)coin(G.b[18].x+19,6,rnd(-30,30),rnd(50,85),true);G.owed=0;}
+  {const st=G.log.filter(r=>r.star).length;if(st){for(let i=0;i<st*2;i++)coin(FIRE_X+rnd(-10,10),6,rnd(-30,30),rnd(50,85),true);hint('dividend',false,`The towns you finished down the line send their share: ${st*2} coins every morning.`);}}
   G.bell=false;G.raided=false;G.side=BIO==='canyon'||Math.random()<.5?1:-1;
-  if(!G.town){G.wx=null;return;}
+  if(!G.town){G.wx=null;G.rainbow=false;return;}
   if(G.b[16].level&&raidPlan().n)hint('wire',true,`The telegraph: ${raidPlan().gang?'a gang of horsemen':raidPlan().boss?'an outlaw and his men':'raiders'} will come from the ${G.side<0?'west':'east'} tonight.`);
   // the day's weather: dust hides raiders from the deputies, rain grows the herd and rests the horse
-  const r=Math.random(),pd=BIO==='desert'?.3:.16,pr=BIO==='desert'?.08:.2;
-  G.wx=r<pd?{k:'dust'}:r<pd+pr?{k:'rain'}:null;
+  const r=Math.random(),pd=BIO==='desert'?.3:.16,pr=BIO==='desert'?.08:.2,wasRain=rainy();
+  G.wx=r<pd?{k:'dust'}:r<pd+pr?{k:'rain'}:null;G.rainbow=wasRain&&!G.wx&&BIO!=='snow';
   if(rainy()&&BIO!=='snow'&&G.herd.length&&G.herd.length<12)cow();
   if(G.wx)hint('wx'+G.wx.k+BIO,false,storm()?`${wxName()}. The deputies cannot see far today, and raiders will be close before anyone spots them.`:BIO==='snow'?'Snowfall. A quiet day.':'Rain. The herd grows on it, and your horse gets its wind back quickly.');
   if(G.outlaw&&--G.outlaw.days<=0){G.outlaw=null;hint('slipped',true,'The wanted man slipped out of the territory.');}
@@ -754,7 +766,7 @@ function showMap(travel){
   });
   ol.append(loco);
   $('maph').textContent=lap?`The line, trip ${lap+1}`:'The line';
-  $('mapnote').textContent=travel?`On to ${nice(TOWNS[(G.town+1)%6])}`:'A star marks a town with every building at its best. Tap to close.';
+  $('mapnote').textContent=travel?`On to ${nice(TOWNS[(G.town+1)%6])}`:'A star marks a town with every building at its best, and pays you 2 coins a day. Tap to close.';
   $('map').hidden=false;mapBusy=!!travel;paused=!travel;
   const at=i=>{const m=ol.children[i].firstChild;loco.style.left=m.offsetLeft+m.offsetWidth/2+'px';loco.style.top=m.offsetTop+m.offsetHeight/2+'px';};
   loco.classList.remove('go');at(G.town%6);
@@ -818,6 +830,10 @@ function target(x){
   for(const b of G.b)if(DEF[b.type].tool&&b.level&&Math.abs(x-rackX(b))<9)return b.badges+b.incoming<3?{b,k:'badge'}:null;
   const b=zoneOf(x);if(!b||b.building)return null;
   const cost=costOf(b);
+  if(DEF[b.type].gate&&b.level&&b.hp>0&&G.dark>.3){       // after dark: patch a damaged gate, or pay rifles onto a gatehouse roof
+    if(b.hp+8*b.incoming<GHP[b.level])return {b,k:'mend'};
+    if(b.level>2&&b.hp>=GHP[b.level]&&(b.pay||0)+b.incoming<12)return {b,k:'hire'};
+  }
   return cost&&b.paid+b.incoming<cost?{b,k:'slot'}:b.type==='bank'&&b.level?{b,k:'bank'}:b.type==='church'&&b.level&&!G.bell&&!b.incoming?{b,k:'bell'}:null;
 }
 function tossCoin(tg,fromBank){
@@ -828,6 +844,7 @@ function tossCoin(tg,fromBank){
   else if(tg.k==='slot'){const cost=costOf(b),sp=slotPos(b,b.paid+b.incoming,cost);p.lock=++b.incoming+b.paid>=cost;fly('slot',sp.x,sp.h-2);}
   else if(tg.k==='badge'){fly('badge',rackX(b)-2+(b.badges+b.incoming)*3,12);b.incoming++;}
   else if(tg.k==='bell'){fly('bell',b.x+27,62);b.incoming++;p.lock=true;}
+  else if(tg.k==='mend'||tg.k==='hire'){fly(tg.k,b.x+7,tg.k==='hire'?30:10);b.incoming++;}
   else{fly('bank',b.x+32,12);if(!p.coins)p.lock=true;}
 }
 function updPlayer(dt){
@@ -880,6 +897,8 @@ function updCoins(dt){
       if(c.st==='bank'){G.bank++;hint('deposit');continue;}
       b.incoming--;
       if(c.st==='bell'){ringBell(b);continue;}
+      if(c.st==='mend'){b.hp=Math.min(GHP[b.level],b.hp+8);b.shake=.12;sfx.hammer(near(b.x));dust(b.x+7,8,3,'#d9b77a');continue;}
+      if(c.st==='hire'){b.pay=(b.pay||0)+1;if(b.pay%4===0){sfx.recruit();spark(b.x+7,30,6);}continue;}
       if(c.st==='badge'){b.badges++;continue;}
       if(++b.paid<costOf(b))continue;
       if(b.type==='coach'){
@@ -978,7 +997,7 @@ function killBandit(q){
   if(q.kind==='boss'){sfx.fanfare();hint('bounty',true);}
 }
 function breakGate(g){
-  if(G.night)G.night.gates++;
+  if(G.night)G.night.gates++;g.pay=0;
   g.level--;g.hp=0;G.shake=.3;sfx.crash(near(g.x));
   for(let i=0;i<14;i++)dust(g.x+rnd(0,14),rnd(0,16),1,'#8a6a44');
   for(let i=0;i<10;i++)G.parts.push({x:g.x+rnd(0,14),h:rnd(4,18),vx:rnd(-55,55),vh:rnd(30,85),life:0,max:rnd(.8,1.4),col:i%2?'#8a6a44':'#5e452a',grav:-170,conf:1});
@@ -1147,6 +1166,15 @@ function updGuns(dt){
 }
 // a sharpshooter in the nest behind third-level wire picks raiders off on their way in
 function updNests(dt){
+  for(const g of [G.b[6],G.b[7]]){       // rifles hired for the night on a gatehouse roof
+    const n=Math.floor((g.pay||0)/4);
+    if(!n||g.hp<=0||(g.rcd=(g.rcd||0)-dt)>0)continue;
+    let t=null,bd=210*sightK();for(const q of G.bandits){const d=Math.abs(q.x-g.x-7);if(d<bd){bd=d;t=q;}}
+    if(!t)continue;
+    const dir=Math.sign(t.x-g.x-7)||g.side,hit=Math.random()<.75;g.rcd=1.3/n;sfx.shot(near(g.x));
+    G.shots.push({x0:g.x+7+dir*8,x1:hit?t.x:t.x+dir*rnd(15,40),h:32,h1:hit?9:2,hit});
+    if(hit){t.hp-=2;t.hurt=.18;dust(t.x,8,3,'#d04a3a');if(t.hp<=0)killBandit(t);}
+  }
   for(const w of [G.b[11],G.b[12]]){
     if(w.gflash>0)w.gflash-=dt;
     if(w.level<3||(w.gcd=(w.gcd||0)-dt)>0)continue;
@@ -1188,6 +1216,11 @@ function updHerd(dt){
   }
 }
 function updWorld(dt){
+  if(BIO==='snow'&&G.state==='play'){       // breath in the cold
+    const p=G.player,f=G.folk[Math.floor(Math.random()*G.folk.length)];
+    if(Math.random()<dt*1.5)G.parts.push({x:p.x+p.dir*13,h:17,vx:p.dir*5+p.vx*.3,vh:4,life:0,max:.9,col:'#f4f8ff',grav:0});
+    if(f&&!f.hidden&&Math.random()<dt*3)G.parts.push({x:f.x+(f.dir||1)*2,h:11,vx:(f.dir||1)*3,vh:4,life:0,max:.8,col:'#f4f8ff',grav:0});
+  }
   if(rainy()&&BIO!=='snow'&&G.state==='play'){
     if((G.boltT=(G.boltT||rnd(4,9))-dt)<=0){G.boltT=rnd(6,16);G.bolt={t:0,x:rnd(.1,.9),seed:Math.random()*99};sfx.thunder();}
   }
@@ -1247,6 +1280,7 @@ function update(dt){
     else{
       G.t+=dt/DAY_LEN;
       if(G.t>=1){G.t-=1;G.day++;dawn();}
+      if(G.t>.29&&G.t<.31&&G.chime!==G.day&&G.b[9].level>1){G.chime=G.day;sfx.chime();}
       if(G.t>.58&&!G.duskDone)dusk();
       G.raid=G.raid.filter(r=>G.t<r.t||(spawnBandit(r.side,r.kind,r.hp),false));
       G.dark=darkness(G.t);
@@ -1256,7 +1290,7 @@ function update(dt){
       if(G.focus&&G.train&&G.state==='play')goal=clamp(G.train.x+50-W/2,p.x-W+28,p.x-28);   // never so far that you leave the frame
       G.cam+=(clamp(goal,0,WORLD-W)-G.cam)*Math.min(1,dt*(G.focus?1.6:3.5));
     }
-  }else{G.dark=darkness(G.t);if(G.state==='title')G.cam=clamp(FIRE_X-35-W/2,0,WORLD-W);}
+  }else{G.dark=darkness(G.t);if(G.state==='title')G.cam=clamp(FIRE_X-35-W/2+Math.sin(G.clock*.06)*150,0,WORLD-W);}
   updWorld(dt);
 }
 
@@ -1699,6 +1733,7 @@ function drawGate(sx,b,L){
     // the gun: carriage, barrel pointing at whatever it last fired on, and a gunner's hat
     R(gx-3,gy,7,3,'#5a4636');P(gx-3,gy+2,'#1c1c22');P(gx+3,gy+2,'#1c1c22');R(o>0?gx:gx-8,gy-2,9,2,'#3a3a44');R(o>0?gx+7:gx-8,gy-2,2,2,'#8a8f98');R(gx-o*4-1,gy-4,3,3,'#e2aa7c');R(gx-o*4-2,gy-5,5,1,'#b89a66');
     if(L===b.level&&b.gflash>0){R(o>0?gx+9:gx-11,gy-3,3,4,'#ffe58a');P(o>0?gx+12:gx-12,gy-1,'#fff');}
+    if(L===b.level)for(let i=0;i<Math.floor((b.pay||0)/4);i++){const hx=sx+[-2,13,4][i];R(hx,gy-3,3,3,'#e2aa7c');R(hx-1,gy-4,5,1,'#5a4630');R(hx,gy-6,3,2,'#5a4630');R(b.side>0?hx+2:hx-5,gy-1,6,1,'#2a1c14');}     // the hired rifles
     return;
   }
   for(let i=0;i<5;i++){const x=sx+i*3,h=20+(i%2)*2-(weak&&i%2?8:0);R(x,g-h,3,h,i%2?w:tone(w,.88));R(x,g-h,1,h,l);R(x+2,g-h+1,1,h-1,d);P(x+1,g-h-1,w);}
@@ -2025,6 +2060,13 @@ function draw(){
     }
   }
   drawGround(cam);
+  if(rainy()&&BIO!=='snow'){      // puddles on the street, ringed by the drops
+    const pc=css(mixA(sb,[70,100,140],.5)),x0=Math.floor(cam/70)*70-70;
+    for(let wx=x0;wx<cam+W+70;wx+=70){
+      const x=Math.round(wx+hash(wx)*40-cam),y=GY+5+Math.floor(hash(wx+1)*(H-GY-11)),w=10+Math.floor(hash(wx+2)*10),r=(G.clock*1.5+hash(wx+3))%1;
+      R(x,y,w,2,pc);R(x+2,y-1,w-4,1,pc);R(x+1,y+2,w-3,1,pc);ctx.globalAlpha=.6;R(x+2,y,3,1,'#dfeaf6');ctx.globalAlpha=1-r;R(x+w/2-r*4,y+1,r*8,1,'#cfe0f0');ctx.globalAlpha=1;
+    }
+  }
   if(dark<.5&&!G.wx){      // cloud shadows slide across the street
     ctx.fillStyle=`rgba(50,26,8,${(.011*(1-dark*2)).toFixed(4)})`;const gh=H-GY;
     for(let i=0;i<3;i++){
@@ -2177,6 +2219,7 @@ function draw(){
     const px=Math.round(p.x-cam),sg=p.sight,ch=G.b[14];
     if(p.wind<.995){R(px-8,GY-38,16,3,'#24160f');R(px-7,GY-37,Math.round(14*p.wind),1,p.blown?'#e0633c':'#8fd0e8');}
     if(sg&&p.ammo>0){const x=Math.round(sg.x-cam),y=GY-8,c=blink?'#ff5a3c':'#ffd0a0';R(x-6,y,3,1,c);R(x+4,y,3,1,c);R(x,y-6,1,3,c);R(x,y+4,1,3,c);}
+    if(tg&&tg.k==='hire'){const gb=tg.b,n=Math.floor((gb.pay||0)/4),x=Math.round(gb.x+7-cam);for(let i=0;i<3;i++)slot(x-6+i*6,GY-54,i<n,i===n);R(x-8,GY-48,17,3,'#24160f');R(x-7,GY-47,Math.round(15*((gb.pay||0)%4)/4),1,'#f2c14e');}
     if(tg&&tg.k==='bell')slot(Math.round(ch.x+27-cam),GY-topOf(ch,1)-56,ch.incoming>0,true);
   }
   for(const q of hostiles())if(q.kind==='boss'){const x=Math.round(q.x-cam)-7;R(x-1,GY-24,16,3,'#24160f');R(x,GY-23,Math.round(14*q.hp/q.max),1,'#e0633c');}
@@ -2202,6 +2245,10 @@ function draw(){
   if(G.fade>0)R(0,0,W,H,`rgba(12,7,5,${G.fade})`);
   // sky goes in behind everything: clouds, sun or moon, stars, then the gradient
   ctx.globalCompositeOperation='destination-over';
+  if(G.rainbow&&G.t<.3){      // the morning after rain
+    const a=.32*Math.min(1,G.t/.04,(.3-G.t)/.08),r0=GY*.8;ctx.lineWidth=2;
+    ['#e8553f','#f2a03a','#f2d94e','#5db06a','#4a8fd0','#7a5ab0'].forEach((c,i)=>{ctx.globalAlpha=a;ctx.strokeStyle=c;ctx.beginPath();ctx.arc(W*.62,GY+12,r0-i*2,Math.PI,2*Math.PI);ctx.stroke();});ctx.globalAlpha=1;
+  }
   if(G.bolt&&G.bolt.t<.2){let bx=G.bolt.x*W,by=0;for(let i=0;i<9;i++){const nx=bx+(hash(G.bolt.seed+i)-.5)*24,ny=by+GY*.085;line(bx,by,nx,ny,'#f6f8ff',i<5?2:1);if(i===4)line(bx,by,bx+(hash(G.bolt.seed+20)-.5)*40,by+GY*.2,'#dfe6ff');bx=nx;by=ny;}}
   // clouds at two depths: big slow cumulus up close with a lit crown and a shaded belly, small ones far off, and thin high streaks
   const grey=G.wx?.5:0,ccA=mixA(mixA(mixA([255,250,240],sb,.4),[112,116,132],grey),[46,44,80],dark*.85);
