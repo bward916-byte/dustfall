@@ -231,6 +231,7 @@ function reset(town){
       mk('doctor',1704),mk('church',1786),mk('forge',1864),mk('telegraph',1948),mk('claim',CLAIM_X),mk('coach',1196)],train:null,log:[],star:false,
     hens:[1140,1190,1305].map((x,i)=>({x,dir:1,t:i,run:0,hop:0,mode:'walk'})),
     hares:[185,318,440,588,752,2245,2415,2500,2585,2725].map(EX).map((x,i)=>({x0:x,x,t:0,cool:0,dir:i%2?1:-1})),
+    dog:{x:FIRE_X+16,dir:-1,walk:0,moving:false,bark:0,yap:0},
     // two camps close to town and two bigger ones out at the far ends; the far strongboxes hold more
     boxes:[{x:250,n:6},{x:610},{x:EX(river?2292:2270)},{x:EX(2540),n:6}].map(b=>({open:false,...b})),camps:[{x:120,cap:3},{x:700,cap:2},{x:EX(river?2256:2210),cap:2},{x:EX(2640),cap:3}],seen:{},
     perch:[640,655,1085,1100,1118,1462,1474,1612,1790,1803,1818,2262].map(EX).map((x,i)=>({x0:x,x,h:0,vx:0,vh:0,t:0,id:i}))};
@@ -333,6 +334,10 @@ const sfx={
   sting:()=>{tone1(147,.5,'sawtooth',.07);tone1(139,.7,'sawtooth',.07,0,.35);},
   bell:()=>{for(const d of [0,.6,1.2]){tone1(659,1.2,'triangle',.13,654,d);tone1(1318,.8,'sine',.05,0,d);}},
   click:()=>{tone1(1800,.03,'square',.06);tone1(1200,.04,'square',.06,0,.07);},
+  bark:v=>{tone1(540,.06,'square',.07*v,300);tone1(500,.07,'square',.07*v,260,.12);},
+  thunder:()=>{burst(1.3,.4);tone1(70,1.1,'sawtooth',.12,32,.08);},
+  howl:()=>{tone1(380,.5,'sine',.03,640);tone1(640,1.4,'sine',.035,430,.48);},
+  rooster:()=>{tone1(700,.11,'square',.03,760);tone1(900,.11,'square',.03,940,.13);tone1(820,.09,'square',.03,0,.26);tone1(1050,.4,'square',.03,760,.36);},
   fanfare:()=>[523,659,784,1047].forEach((f,i)=>tone1(f,.22,'triangle',.14,0,i*.12))
 };
 // a lonesome, harmonica-ish line over the opening; it has its own volume so skipping can hush it
@@ -357,7 +362,7 @@ function pnote(m,t,d,v){
     const og=AC.createGain();og.gain.value=type==='square'?.18:1;o.connect(og);og.connect(g);o.start(t);o.stop(t+d+.02);
   }
 }
-let pianoVol=0;
+let pianoVol=0,nextChirp=0,nextHowl=0;
 function updAudio(){
   const s=G.b[1],open=s.level>0&&!s.building&&G.state==='play';
   pianoVol=open?clamp(1-Math.abs(s.x+43-G.player.x)/280,0,1):0;
@@ -375,6 +380,11 @@ function updAudio(){
       if(hash(i*1.7)>.18)pnote(root+12+RH[i%16],nextNote,.16,.4);
     }
     noteIdx++;nextNote+=.19;
+  }
+  if(G.state==='play'&&G.dark>.6&&!G.wx&&BIO!=='snow'){
+    const t=AC.currentTime;
+    if(t>nextChirp){nextChirp=t+.5+Math.random()*.6;const f=3900+Math.random()*500,v=.011+Math.random()*.008;for(let i=0;i<3;i++)tone1(f,.028,'sine',v,0,i*.055);}
+    if(!nextHowl)nextHowl=t+12+Math.random()*20;else if(t>nextHowl){nextHowl=t+35+Math.random()*50;sfx.howl();}
   }
 }
 
@@ -506,9 +516,10 @@ const cow=()=>G.herd.push({id:G.nextId++,x:rnd(PASTURE[0]+8,PASTURE[1]-8),dir:1,
 // raiders come out of the dark a little way beyond the gate on their side, further off if you are standing there
 function spawnBandit(side,kind,more){
   const g=G.b[side<0?6:7],K=KIND[kind],hp=K[0]+(more||0);let x=g.x+side*340;if(Math.abs(G.player.x-x)<W*.8)x+=side*W;
-  G.bandits.push({id:G.nextId++,kind,x:clamp(x,-10,WORLD+10),dir:-side,side,hp,max:hp,state:'raid',loot:0,walk:0,cd:0,cd2:2,hurt:0,vx:0,phase:0,moving:true,rustle:Math.random()<.4,tx:rnd(TOWN[0],TOWN[1])});
+  G.bandits.push({id:G.nextId++,kind,x:clamp(x,-10,WORLD+10),dir:-side,side,hp,max:hp,state:'raid',loot:0,walk:0,cd:0,cd2:2,hurt:0,vx:0,phase:0,moving:true,rustle:Math.random()<.4,torch:Math.random()<.4,tx:rnd(TOWN[0],TOWN[1])});
 }
 function dawn(){
+  if(G.b[0].level)sfx.rooster();
   for(const f of G.folk)if(f.sick){f.sick=false;f.hidden=false;f.goal='';}
   for(const f of G.folk)if(f.role==='folk')coin(f.hidden?G.b[1].x+43:f.x,6,rnd(-22,22),rnd(50,75),true);
   for(const b of G.b){
@@ -538,7 +549,7 @@ function dusk(){
   hint(gang?'gang':boss?'boss':'raid',gang||boss,gang?`A gang of horsemen is riding in from the ${s0<0?'west':'east'} tonight. Wire and a strong gate on that side will break the charge.`:undefined);sfx.sting();
 }
 // ---------- the rider's gun and the horse's wind; and what the towns down the line add
-const troughs=()=>[1337,PASTURE[0]+32];
+const troughs=()=>[1337,PASTURE[0]+32],PIPES=['store','sheriff','doctor','bordello','bank'];
 const RIV=()=>[EX(2162),EX(2198)];
 const slowAt=x=>{if(BIO!=='river')return 1;const r=RIV();return x>r[0]&&x<r[1]?.5:1;};
 const storm=()=>!!G.wx&&G.wx.k==='dust',rainy=()=>!!G.wx&&G.wx.k==='rain',sightK=()=>storm()?.6:1;
@@ -851,7 +862,7 @@ function updCoins(dt){
       if(dist>step){c.x+=dx/dist*step;c.h+=dh/dist*step;}else{G.coins.splice(i,1);p.coins++;sfx.pick();spark(p.x,13,2);}
     }else{
       const dx=c.tx-c.x,dh=c.th-c.h,dist=Math.hypot(dx,dh),step=150*dt,b=c.b;
-      if(dist>step){c.x+=dx/dist*step;c.h+=dh/dist*step;continue;}
+      if(dist>step){c.x+=dx/dist*step;c.h+=dh/dist*step;if(Math.random()<dt*18)G.parts.push({x:c.x,h:c.h+3,vx:rnd(-6,6),vh:rnd(-4,6),life:0,max:.35,col:'#fff3b0',grav:0,lit:1});continue;}
       G.coins.splice(i,1);sfx.slot();spark(c.tx,c.th+2,3);
       if(c.st==='bank'){G.bank++;hint('deposit');continue;}
       b.incoming--;
@@ -955,12 +966,14 @@ function killBandit(q){
 function breakGate(g){
   g.level--;g.hp=0;G.shake=.3;sfx.crash(near(g.x));
   for(let i=0;i<14;i++)dust(g.x+rnd(0,14),rnd(0,16),1,'#8a6a44');
+  for(let i=0;i<10;i++)G.parts.push({x:g.x+rnd(0,14),h:rnd(4,18),vx:rnd(-55,55),vh:rnd(30,85),life:0,max:rnd(.8,1.4),col:i%2?'#8a6a44':'#5e452a',grav:-170,conf:1});
   hint('gatedown',true);
 }
 function updBandits(dt){
   const p=G.player;
   for(const q of [...G.bandits]){
     const x0=q.x;q.cd-=dt;q.hurt-=dt;
+    if(q.torch&&q.state==='raid'&&Math.random()<dt*5)G.parts.push({x:q.x+q.dir*4,h:q.kind==='rider'?32:21,vx:rnd(-6,6),vh:rnd(8,18),life:0,max:rnd(.4,.9),col:'#ff9a2e',grav:0,lit:1});
     if(G.t<.5&&G.dark<.45)q.state='flee';
     banditAct(q,dt,p);if(G.state!=='play')return;
     q.vx=(q.x-x0)/dt;q.phase+=Math.abs(q.vx)*dt*.085;
@@ -1055,6 +1068,7 @@ function updBuild(dt){
     else if(!todo().length&&!G.b[4].level&&!G.b[4].building)setTimeout(()=>hint('rail',true,`${nice(townName())} is back on its feet. Fix up the old station for ${costOf(G.b[4])} coins and the railroad will come.`),7000);
     checkStar();
   }
+  if(G.dark>.35||BIO==='snow'||G.t<.12)for(const b of G.b)if(b.x>=0&&b.level&&!b.building&&PIPES.includes(b.type)&&Math.random()<dt*2.2)puff(b.x+14,topOf(b,b.level)+22,'#bdb6ad');
   const fg=G.b[15];
   if(fg.level&&!fg.building){
     if(Math.random()<dt*4)puff(fg.x+11,topOf(fg,fg.level)+24,'#6f6a66');
@@ -1132,6 +1146,25 @@ function checkStar(){
   if(G.star||!maxed())return;G.star=true;save();
   setTimeout(()=>{if(G.state==='play'&&!G.trip){card('Boomtown',`Every building in ${nice(townName())} is at its best`,3800);fireworks(FIRE_X,7);sfx.fanfare();}},2600);
 }
+// a stray that has taken to you: it trots along while you are in town, waits at the gate when you ride out, and barks at raiders after dark
+function updDog(dt){
+  const d=G.dog,p=G.player,tx=clamp(p.x-p.dir*17,G.b[6].x+22,G.b[7].x-10),dx=tx-d.x;
+  if(Math.abs(dx)>(d.moving?2:9)){d.dir=Math.sign(dx);d.x+=d.dir*Math.min(clamp(Math.abs(p.vx)+10,44,135)*dt,Math.abs(dx));d.walk+=dt*14;d.moving=true;}
+  else{d.moving=false;if(Math.abs(p.x-d.x)>3)d.dir=Math.sign(p.x-d.x);}
+  d.bark-=dt;if(d.yap>0)d.yap-=dt;
+  if(G.dark>.5&&d.bark<=0&&G.bandits.some(q=>q.state==='raid'&&Math.abs(q.x-d.x)<170)){d.bark=1.1+Math.random();d.yap=.28;sfx.bark(near(d.x));const q=G.bandits.reduce((a,z)=>Math.abs(z.x-d.x)<Math.abs(a.x-d.x)?z:a);d.dir=Math.sign(q.x-d.x)||1;}
+}
+function drawDog(sx,d){
+  const g=GY,c='#c9a468',k='#8a6a40',dr=d.dir,f=d.moving?Math.floor(d.walk)%2:0,yap=d.yap>0,wag=Math.sin(G.clock*(d.moving?16:7))>0?1:0;
+  const px=(dx,dy,w,h,col)=>R(dr>0?sx+dx:sx-dx-w+1,g+dy,w,h,col);
+  shadow(sx,9);
+  if(d.moving||yap){
+    px(-3,-5,6,3,c);px(-1,-5,2,1,k);px(-3+f,-2,1,2,c);px(-2+f,-2,1,1,k);px(2-f,-2,1,2,c);px(1-f,-2,1,1,k);
+    px(2,-8-(yap?1:0),3,3,c);px(2,-9-(yap?1:0),1,1,k);px(4,-7-(yap?1:0),1,1,'#1c1410');if(yap)px(5,-7,1,1,'#f4ecd6');px(-4,-7+wag,1,2,c);
+  }else{   // sitting, tail going
+    px(-2,-5,4,5,c);px(-3,-2,2,2,c);px(-1,-4,2,1,k);px(1,-8,3,3,c);px(1,-9,1,1,k);px(3,-7,1,1,'#1c1410');px(-4-wag,-1,2,1,c);
+  }
+}
 function updHerd(dt){
   for(const c of G.herd){
     if((c.t-=dt)<=0){c.t=rnd(2,7);c.tx=Math.random()<.5?c.x:rnd(PASTURE[0]+8,PASTURE[1]-8);}
@@ -1139,6 +1172,14 @@ function updHerd(dt){
   }
 }
 function updWorld(dt){
+  if(rainy()&&BIO!=='snow'&&G.state==='play'){
+    if((G.boltT=(G.boltT||rnd(4,9))-dt)<=0){G.boltT=rnd(6,16);G.bolt={t:0,x:rnd(.1,.9),seed:Math.random()*99};sfx.thunder();}
+  }
+  if(G.bolt&&(G.bolt.t+=dt)>.45)G.bolt=null;
+  // a dust devil wanders the open country now and then
+  const dv=G.devil;
+  if(dv){dv.t+=dt;dv.x+=dv.dir*22*dt;if(dv.t>16)G.devil=null;else if(Math.random()<dt*8)dust(dv.x+rnd(-4,4),1,1);}
+  else if((BIO==='desert'||BIO==='canyon')&&!G.wx&&G.dark<.3&&Math.random()<dt*.025){const west=Math.random()<.5;G.devil={t:0,dir:Math.random()<.5?1:-1,x:west?rnd(200,G.b[6].x-140):rnd(G.b[7].x+160,WORLD-200)};}
   for(const h of G.hares){
     if(h.cool>0){if((h.cool-=dt)<=0){h.x=h.x0;h.t=0;}continue;}
     if(h.t>0){h.t-=dt;h.x+=h.dir*88*dt;if(h.t<=0)h.cool=rnd(8,16);}
@@ -1157,7 +1198,7 @@ function updWorld(dt){
     const q=G.parts[i];q.life+=dt;q.x+=q.vx*dt;q.h+=q.vh*dt;q.vh+=q.grav*dt;
     if(q.life>q.max||q.h<0)G.parts.splice(i,1);
   }
-  for(const x of [...(G.b[9].level?[]:[FIRE_X]),...G.camps.map(c=>c.x)]){
+  for(const x of [...(G.b[9].level?[]:[FIRE_X]),...G.camps.map(c=>c.x),...(G.dark>.3?[G.b[6],G.b[7]].filter(g=>g.level).map(g=>g.x+7-g.side*16):[])]){
     if(Math.random()<dt*2.5)G.parts.push({x:x+rnd(-1,1),h:6,vx:rnd(-4,4),vh:rnd(10,20),life:0,max:rnd(.6,1.3),col:Math.random()<.5?'#ffb13b':'#ff7a2a',grav:0,lit:1});
     if(Math.random()<dt*1.5)G.parts.push({x:x+rnd(-1,1),h:9,vx:rnd(3,8),vh:rnd(8,13),life:0,max:rnd(1.2,2.2),col:'#8d8780',grav:0,big:1});
   }
@@ -1168,6 +1209,7 @@ function updWorld(dt){
     if(b.d===undefined){
       b.h1=b.h1||b.h;b.t=0;b.d=Math.max(.06,Math.hypot(b.x1-b.x0,b.h1-b.h)/520);
       G.parts.push({x:b.x0,h:b.h+1,vx:Math.sign(b.x1-b.x0)*7,vh:6,life:0,max:.55,col:'#e6e0d6',grav:0,big:1});
+      G.parts.push({x:b.x0,h:b.h,vx:0,vh:0,life:0,max:.1,col:'#fff3b0',grav:0,lit:1,glow:22});
     }
     if((b.t+=dt)<b.d)continue;
     if(b.hit)spark(b.x1,b.h1,3,'#ffe9b0');else dust(b.x1,Math.max(0,b.h1-2),2);
@@ -1193,7 +1235,7 @@ function update(dt){
       G.raid=G.raid.filter(r=>G.t<r.t||(spawnBandit(r.side,r.kind,r.hp),false));
       G.dark=darkness(G.t);
       updPlayer(dt);updCoins(dt);updDrifters(dt);updFolk(dt);updBandits(dt);
-      if(G.state==='play'){updBuild(dt);updTrain(dt);updHens(dt);updHerd(dt);updGuns(dt);updNests(dt);updCoach(dt);updOutlaw(dt);}
+      if(G.state==='play'){updBuild(dt);updTrain(dt);updHens(dt);updDog(dt);updHerd(dt);updGuns(dt);updNests(dt);updCoach(dt);updOutlaw(dt);}
       const p=G.player;let goal=p.x+p.dir*W*.1-W/2;
       if(G.focus&&G.train&&G.state==='play')goal=clamp(G.train.x+50-W/2,p.x-W+28,p.x-28);   // never so far that you leave the frame
       G.cam+=(clamp(goal,0,WORLD-W)-G.cam)*Math.min(1,dt*(G.focus?1.6:3.5));
@@ -1608,6 +1650,7 @@ function drawWire(sx,b,L){
     if(L===b.level&&b.gflash>0){R(o>0?nx+14:nx-7,g-10,3,3,'#ffe58a');P(o>0?nx+17:nx-8,g-9,'#fff');}
   }
 }
+const lamps=()=>G.b[9].level?[1008,1220,1389,1484,1577,1694,...(SHIFT?[1774,1852,1942,2025]:[])]:[];
 // a lot staked out for a building this town does not have yet
 function drawLot(sx,w){
   const g=GY,c='#6a5a4a',tx=sx+(w>>1)-7;
@@ -1708,6 +1751,8 @@ function facade(sx,b,L){
   if(ruin){
     if(!d.barn){R(sx-5,g-26,Math.round(w*.45),2,dk);line(sx+w*.45-5,g-25,sx+w*.62,g-18,dk);R(sx-3,g-24,2,24,dk);R(sx+w-6,g-11,2,11,dk);}
     line(sx+w-16,g-2,sx+w-3,g-8,board);R(sx-6,g-2,w+12,2,dk);P(sx+4,g-3,'#8a8246');P(sx+5,g-4,'#a8974f');P(sx+w-9,g-3,'#8a8246');
+    if(hash(seed)>.3&&G.dark<.6){const cx=sx+Math.round(w*(.2+hash(seed+1)*.4)),cy=d.barn?top-10:top-ff,bob=Math.sin(G.clock*.9+seed)>.9?1:0,cd=hash(seed+2)>.5?1:-1;R(cx-1,cy-3+bob,3,2,'#1c1410');P(cx+cd,cy-4+bob,'#1c1410');P(cx+cd*2,cy-4+bob,'#6a5a3a');P(cx-cd*2,cy-2,'#1c1410');P(cx,cy-1,'#1c1410');}
+    {const q=d.wins[0],x=sx+q.x,y=g+q.y;for(let i=0;i<5;i++){P(x+i,y+4-i,'#cfc8bc');if(i<4)P(x+i,y,'#cfc8bc');if(i<3)P(x,y+i,'#cfc8bc');}P(x+2,y+1,'#cfc8bc');}
     if(BIO==='snow')snowCap(sx,top,w,d,fw-4);
     return;
   }
@@ -1750,6 +1795,7 @@ function facade(sx,b,L){
     if(L===b.level&&G.state==='play'&&G.t<.72&&raidPlan().n){const sd=G.side;for(let k=0;k<5;k++)R(mx+(sd>0?1+k:-1-k),my-18+(k>>1),1,5-k,'#c0392b');}
   }
   if(b.type==='sheriff'&&G.outlaw){R(sx+22,g-21,9,11,'#f0e6c8');R(sx+22,g-21,9,2,'#b53a2e');R(sx+25,g-17,3,3,'#5a4636');R(sx+24,g-13,5,1,'#5a4636');R(sx+(G.outlaw.side<0?23:27),g-11,3,1,'#b53a2e');}   // a fresh poster
+  if(PIPES.includes(b.type)){R(sx+13,top-ff-8,3,7,'#3a3a44');R(sx+12,top-ff-9,5,1,'#24242c');P(sx+13,top-ff-6,'#55555f');}
   if(BIO==='snow')snowCap(sx,top,w,d,w+4);
 }
 function lights(sx,b,a){
@@ -1802,6 +1848,11 @@ function person(sx,o,kind){
   }
   const legs=c=>{R(sx-1+(f===1?d:0),g-4,1,f===3?3:4,c);R(sx+1+(f===3?d:0),g-4,1,f===1?3:4,c);};
   if(kind==='drifter'){
+    if(o.home!==undefined&&!o.moving&&!o.target&&Math.abs(o.x-o.home)<3){
+      const fd=Math.sign(G.camps[o.camp].x-o.x)||1;
+      R(sx-1,g-2,4,2,'#3f352d');R(sx-1,g-6,3,4,'#6e5a48');P(sx,g-5,'#8a7460');R(sx-1+fd,g-9,3,3,skin);R(sx-1+fd,g-10,3,1,'#4b3c30');R(sx-2+fd,g-10,5,1,'#4b3c30');R(sx-1+fd,g-11,3,1,'#4b3c30');P(sx+fd*2,g-5,skin);
+      return;
+    }
     const jit=!o.moving&&Math.sin(G.clock*7+id)>.92?1:0;
     legs('#3f352d');R(sx-1+d,g-8,3,4,'#6e5a48');R(sx-1,g-7,3,3,'#6e5a48');P(sx,g-6,'#8a7460');P(sx+d,g-5,'#55463a');
     R(sx-1+d,g-11+jit,3,3,skin);R(sx-1+d,g-12+jit,3,2,'#4b3c30');R(sx-1,g-11+jit,d>0?1:3,2,'#4b3c30');P(sx+d*3,g-7,skin);return;
@@ -1838,6 +1889,10 @@ function person(sx,o,kind){
     R(sx-2,g-9+a,1,3,tone(look===4?'#d8d2c2':sh,.8));R(sx+2,g-8-a,1,3,tone(look===4?'#d8d2c2':sh,.8));
     R(sx-1,g-12,3,3,skin);if(look===4)R(sx-1+(d>0?1:0),g-10,2,2,'#eeeae0');
     R(sx-2,g-13,5,1,hat);R(sx-1,g-15,3,2,hat);if(look===1)R(sx-1,g-14,3,1,'#b53a2e');
+  }
+  if(kind==='folk'&&!o.moving&&!o.work&&G.dark<.5){
+    if(id%5===2){const sw=Math.round(Math.sin(G.clock*4+id)*2);line(sx+d*2,g-8,sx+d*3+sw,g-1,'#8a6a40');R(sx+d*3+sw-1,g-1,3,1,'#d8b25a');}        // sweeping
+    else if(id%5===0){P(sx+d*2,g-11,'#5a3a22');if(Math.random()<.02)G.parts.push({x:o.x+d*3,h:12,vx:rnd(1,4),vh:rnd(5,9),life:0,max:1.3,col:'#d8d2c8',grav:0});}   // a pipe
   }
   if(kind==='folk'&&!o.moving&&!o.work&&G.state==='play'&&Math.abs(o.x-G.player.x)<18){const wd=Math.sign(G.player.x-o.x)||1;R(sx+wd*2,g-12,1,3,skin);}   // a wave as you ride by
   if(kind==='rancher'){
@@ -1926,6 +1981,7 @@ function draw(){
   for(const b of G.b)if(b.x<0&&DEF[b.type].wall&&(SHIFT||b.home<1695)){const sx=b.home-cam;if(sx<W+20&&sx+b.w>-20)drawLot(sx,b.w);}
   const tier=G.b[9].level;
   if(tier){const x0=G.b[6].x+18-cam,x1=G.b[7].x-4-cam;R(x0,GY-1,x1-x0,1,'#a67c50');for(let x=x0+(6-(x0+cam)%6)%6;x<x1;x+=6)P(x,GY-1,'#5e4226');}
+  for(const lx of lamps()){const x=lx-cam;if(x<-8||x>W+8)continue;R(x,GY-24,1,24,'#2e241c');R(x-1,GY-3,3,3,'#3a2e26');R(x-2,GY-25,5,1,'#2e241c');R(x-1,GY-29,3,4,'#5a5046');R(x-2,GY-30,5,1,'#2e241c');P(x,GY-31,'#2e241c');}
   if(tier>1){
     // bunting strung from roof to roof down main street
     const row=G.b.filter(b=>DEF[b.type].wall&&b.level).sort((a,z)=>a.x-z.x);
@@ -1948,6 +2004,7 @@ function draw(){
   for(const b of G.b)if(DEF[b.type].wall){const sx=b.x-cam;if(sx<W+40&&sx+b.w>-40)for(let k=0;k<6;k++)ctx.fillRect(Math.round(sx-3+lean*k/5),GY+k,b.w+6,1);}
   drawBrush(cam);drawRail(cam);drawPasture(cam);
   G.camps.forEach(c=>{drawCamp(c.x-cam);drawFireBase(c.x-cam,1);});
+  for(const g of [G.b[6],G.b[7]])if(g.level){const x=g.x+7-g.side*16-cam;R(x-3,GY-5,7,2,'#2e2a30');R(x-2,GY-3,1,3,'#2e2a30');R(x+2,GY-3,1,3,'#2e2a30');P(x-3,GY-6,'#2e2a30');P(x+3,GY-6,'#2e2a30');}
   if(!tier)drawFireBase(FIRE_X-cam);
   for(const q of G.prints){const x=Math.round(q.x-cam);if(x<-2||x>W+2)continue;ctx.globalAlpha=.4*(1-q.t/9);R(x,GY+2,2,1,GP[10]);P(x,GY+3,GP[10]);}
   ctx.globalAlpha=1;
@@ -1975,6 +2032,7 @@ function draw(){
   // lit windows go on first so nobody walks behind the glass; people get their own layer and a lighter coat of night
   const la=clamp(dark*1.4,0,1),main=ctx;
   for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
+  if(la>0)for(const lx of lamps()){const x=lx-cam;if(x<-30||x>W+30)continue;ctx.globalAlpha=la;R(x-1,GY-29,3,4,'#ffe08a');P(x,GY-28,'#fff8d8');ctx.globalAlpha=1;glow(x,GY-27,20,'255,200,110',(.42+.05*Math.sin(G.clock*11+lx))*la);glow(x,GY+3,30,'255,180,90',.24*la,.3);}
   if(G.folk.some(f=>f.role==='miner')){R(MINE+12-cam,GY-13,2,3,'#ffe08a');glow(MINE+13-cam,GY-12,16,'255,200,110',.1+.4*la);}
   if(G.train){const sx=Math.round(G.train.x-cam);glow(sx+1,GY-19,22,'255,230,150',.12+.5*la);glow(sx-34,GY-9,52,'255,225,150',.3*la,.4);ctx.globalAlpha=la;for(let i=0;i<6;i++)R(sx+68+i*7,GY-16,4,5,'#ffcf6b');ctx.globalAlpha=1;}
   ctx=pctx;ctx.clearRect(0,0,W,H);
@@ -2002,9 +2060,11 @@ function draw(){
   for(const q of G.bandits){
     const sx=Math.round(q.x-cam);if(storm())ctx.globalAlpha=Math.abs(q.x-p.x)<70?1:.35;     // dust hides them until they are close
     if(q.kind==='rider')drawHorse(sx,q,HORSE2,RIDER2,'#1f1c22','#2e2a30');else person(sx,q,q.kind);
+    if(q.torch&&q.state==='raid'){const ty=q.kind==='rider'?GY-31:GY-19;line(sx+q.dir*2,ty+7,sx+q.dir*4,ty+1,'#5a3a22');}
   }
   ctx.globalAlpha=1;
   if(G.outlaw){const sx=Math.round(G.outlaw.x-cam);if(sx>-20&&sx<W+20)person(sx,G.outlaw,'boss');}
+  if(G.state==='play'&&!G.trip){const sx=Math.round(G.dog.x-cam);if(sx>-10&&sx<W+10)drawDog(sx,G.dog);}
   if(G.state==='play'&&!G.trip||G.state==='intro'&&G.intro.t>3.6)drawHorse(p.x-cam,p);
   {const sl=G.b[1],sx=Math.round(sl.x+sl.w+12-cam);if(sl.level&&!sl.building&&sx>-30&&sx<W+30){      // a patron's horse tied outside the saloon
     shadow(sx-2,24);R(sx-17,GY-8,2,8,'#5a3a22');R(sx-18,GY-9,6,2,'#6a4a2e');
@@ -2013,6 +2073,15 @@ function draw(){
     ctx.drawImage(HORSE2.l,sx-15,GY-21);line(sx-12,GY-15,sx-16,GY-9,'#5a4636');
   }}
   coat('16,14,54',.3*dark);ctx=main;ctx.drawImage(ppl,0,0);
+  for(const q of G.bandits)if(q.torch&&q.state==='raid'){        // the flames go on after the night does, so they burn bright
+    const tx=Math.round(q.x-cam)+q.dir*4,ty=q.kind==='rider'?GY-31:GY-19,fl=Math.sin(G.clock*19+q.id)>0?1:0;if(tx<-30||tx>W+30)continue;
+    R(tx-1,ty-2-fl,2,3+fl,'#ff8a2a');P(tx,ty-3-fl,'#ffe07a');P(tx-fl,ty-1,'#ffe07a');glow(tx,ty,26,'255,150,60',storm()?.2:.42);
+  }
+  if(BIO==='river'&&dark>.5&&!G.wx){
+    const rv=RIV();ctx.fillStyle='#e6ff8a';
+    for(let i=0;i<18;i++){const b=Math.sin(G.clock*(1.2+hash(i+70)*1.5)+i*2.4);if(b<.3)continue;const x=Math.round(rv[0]-170+hash(i+30)*380+Math.sin(G.clock*.5+i)*7-cam),y=Math.round(GY-3-hash(i+50)*30+Math.sin(G.clock*.8+i*1.7)*3);if(x<0||x>W)continue;ctx.globalAlpha=(b-.3)/.7;ctx.fillRect(x,y,1,1);ctx.globalAlpha=(b-.3)*.3;ctx.fillRect(x-1,y-1,3,3);}
+    ctx.globalAlpha=1;
+  }
   const mist=Math.max(0,1-G.t/.11,(G.t-.93)/.07);
   if(mist>0&&!G.wx){
     const mg=ctx.createLinearGradient(0,GY-17,0,GY+7);mg.addColorStop(0,'rgba(236,226,220,0)');mg.addColorStop(.7,`rgba(236,226,220,${(.36*mist).toFixed(3)})`);mg.addColorStop(1,'rgba(236,226,220,0)');
@@ -2025,9 +2094,11 @@ function draw(){
     ctx.globalAlpha=1;
   }
   if(!tier)drawFire(FIRE_X-cam,0);G.camps.forEach((c,i)=>drawFire(c.x-cam,2+i*2));
+  if(dark>.3)for(const g of [G.b[6],G.b[7]])if(g.level){ctx.save();ctx.translate(0,-5);drawFire(g.x+7-g.side*16-cam,g.x);ctx.restore();}
   for(const q of G.parts){
     if(!q.lit)continue;
     const x=Math.round(q.x-cam+(q.note?Math.sin(q.life*5)*2:0)),y=Math.round(GY-1-q.h);ctx.globalAlpha=1-(q.life/q.max)**2;
+    if(q.glow){ctx.globalAlpha=1;glow(x,y,q.glow,'255,225,160',.55*(1-q.life/q.max));continue;}
     if(q.note){R(x+1,y,1,4,q.col);R(x,y+3,2,2,q.col);P(x+2,y+1,q.col);}
     else{P(x,y,q.col);if(q.star&&q.life<q.max*.6){P(x-1,y,q.col);P(x+1,y,q.col);P(x,y-1,q.col);P(x,y+1,q.col);}}
   }
@@ -2076,6 +2147,12 @@ function draw(){
     if(low>.12){glow(x,y,46+low*30,'255,170,90',.2*low);glow(x,y,W*.55,'255,190,120',.13*low,.07);}
   }
   drawFore(cam);
+  if(G.devil){      // a leaning, turning column of dust
+    const dv=G.devil,x=dv.x-cam,k=Math.min(1,dv.t/1.5,(16-dv.t)/1.5);
+    if(x>-40&&x<W+40)for(let j=0;j<26;j++){const hh=j*1.9,r=1.5+j*.62,a=G.clock*9+j*.85,cx=x+Math.sin(G.clock*1.3+j*.25)*2.5+j*.35*dv.dir;ctx.globalAlpha=k*.16;R(cx-r,GY-3-hh,r*2+1,2,GP[7]);ctx.globalAlpha=k*(.85-j*.022);R(x+Math.cos(a)*r+Math.sin(G.clock*1.3+j*.25)*2.5+j*.35*dv.dir,GY-2-hh,Math.sin(a)>0?2:3,j%4?1:2,j%3?GP[7]:j%2?GP[5]:GP[1]);}
+    ctx.globalAlpha=1;
+  }
+  if(G.bolt)R(0,0,W,H,`rgba(222,232,255,${(.38*Math.pow(1-G.bolt.t/.45,2)).toFixed(3)})`);
   if(G.wx||BIO==='snow')drawWeather();
   const vg=ctx.createRadialGradient(W/2,H*.45,H*.45,W/2,H*.45,Math.max(W,H)*.75);vg.addColorStop(0,'rgba(20,10,6,0)');vg.addColorStop(1,'rgba(20,10,6,.42)');
   ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
@@ -2083,6 +2160,7 @@ function draw(){
   if(G.fade>0)R(0,0,W,H,`rgba(12,7,5,${G.fade})`);
   // sky goes in behind everything: clouds, sun or moon, stars, then the gradient
   ctx.globalCompositeOperation='destination-over';
+  if(G.bolt&&G.bolt.t<.2){let bx=G.bolt.x*W,by=0;for(let i=0;i<9;i++){const nx=bx+(hash(G.bolt.seed+i)-.5)*24,ny=by+GY*.085;line(bx,by,nx,ny,'#f6f8ff',i<5?2:1);if(i===4)line(bx,by,bx+(hash(G.bolt.seed+20)-.5)*40,by+GY*.2,'#dfe6ff');bx=nx;by=ny;}}
   // clouds at two depths: big slow cumulus up close with a lit crown and a shaded belly, small ones far off, and thin high streaks
   const grey=G.wx?.5:0,ccA=mixA(mixA(mixA([255,250,240],sb,.4),[112,116,132],grey),[46,44,80],dark*.85);
   const csA=mixA(mixA(mixA(mixA([225,205,195],sb,.6),[255,140,90],warmth(G.t)*.55),[84,88,104],grey),[34,32,64],dark*.85);
@@ -2121,6 +2199,13 @@ function draw(){
     for(const [dx,dy,w] of [[-3,-2,2],[1,2,2],[2,-3,1],[-1,3,1],[3,1,1],[-4,1,1]])R(mx+dx,my+dy,w,1,'#bcc4d8');
     disc(x,y,7,'#e9edf6',1);ctx.restore();disc(x,y,13,'#aab4e0',.16);disc(x,y,25,'#8f9ad0',.07);
     if(G.meteor){const m=G.meteor,mx=m.x*W+m.t*80,my=m.y*GY+m.t*34;for(let k=0;k<8;k++){ctx.globalAlpha=(1-m.t/.7)*(1-k/8);P(mx-k*2,my-k*.85,k<2?'#fff':'#cfd6ff');}ctx.globalAlpha=1;}
+  }
+  if(BIO==='snow'&&dark>.6&&!G.wx){
+    for(let x=0;x<W;x+=2){
+      const u=x*.028+G.clock*.05,top=Math.round(GY*(.14+.06*(Math.sin(u)+Math.sin(u*2.3+1.7)*.5))),hh=GY*(.2+.07*Math.sin(u*1.7+G.clock*.11)),a=(dark-.6)*2.5*(.45+.55*Math.sin(u*3.1+G.clock*.21)**2)*.3;
+      for(let k=0;k<4;k++){ctx.globalAlpha=a*(1-k*.24);R(x,top+Math.round(hh*k/4),2,Math.ceil(hh/4),k<2?'#6affc0':k<3?'#5ad8e8':'#8a8cf0');}
+    }
+    ctx.globalAlpha=1;
   }
   const sa=clamp((dark-.35)/.5,0,1);
   // the Milky Way: a dim band of small stars across the sky
