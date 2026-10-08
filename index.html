@@ -108,6 +108,12 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #hud #day{margin-left:0}
 @media (prefers-reduced-motion:reduce){canvas{transition:none}}
 @media (max-width:560px){#mute{font-size:0;padding:3px 9px}#mute::before{content:"\266A";font-size:17px;font-family:Georgia,serif}#mute.off::before{opacity:.35}}
+#info{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);margin:0;width:max-content;max-width:min(94%,44rem);text-align:center;font-family:Georgia,serif;font-size:15px;line-height:1.3;padding:6px 14px;border-radius:4px;
+  background:linear-gradient(rgba(62,39,24,.96),rgba(36,22,15,.96));border:1px solid rgba(242,193,78,.6);box-shadow:0 3px 0 rgba(0,0,0,.3);opacity:0;transition:opacity .18s;pointer-events:none}
+#info.on{opacity:1}
+#info b{font-family:Rye,Rockwell,Georgia,serif;font-weight:400;color:var(--gold);margin-right:9px}
+@media (orientation:landscape){.touch #info{max-width:calc(100% - 340px)}}
+.cine #info,.title #info{display:none}
 </style>
 </head>
 <body class="title">
@@ -122,7 +128,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
   <button id="mapb" type="button">Map</button>
   <button id="mute" type="button">Sound on</button>
 </div>
-<div id="cine"><i id="barT"></i><i id="barB"><span id="cap"></span></i><h2 id="card"></h2><p id="skip">Tap or press any key to skip</p></div>
+<div id="cine"><i id="barT"></i><i id="barB"><span id="cap"></span></i><h2 id="card"></h2><p id="skip">Tap or press any key to skip</p><p id="info" role="status"><b></b><span></span></p></div>
 <div id="hint" role="status"></div>
 <div id="map" hidden><div id="mapin"><h2 id="maph">The line</h2><ol id="stops"></ol><svg id="loco" viewBox="0 0 30 18"><path d="M2 12V6h7V2h8v4h7l4 6z" fill="#2a1a10"/><rect x="11" y="4" width="4" height="3" fill="#ead9ae"/><rect x="20" y="1" width="3" height="5" fill="#2a1a10"/><circle cx="8" cy="14" r="3.2" fill="#a8452e"/><circle cx="18" cy="14" r="3.2" fill="#a8452e"/><circle cx="25" cy="15" r="2.2" fill="#a8452e"/></svg><p id="mapnote"></p></div></div>
 <div id="pad" aria-label="Thumbstick: ride left or right">
@@ -474,7 +480,7 @@ function hint(k,again,txt){
   const el=$('hint');el.textContent=txt||HINTS[k];el.classList.add('on');
   clearTimeout(hintTimer);hintTimer=setTimeout(()=>el.classList.remove('on'),Math.max(6500,el.textContent.length*62));
 }
-let hudCoins=-1,hudDay=-1,hudBank=-2,hudAmmo=-1,hudNews='',hudDial=-1;
+let hudCoins=-1,hudDay=-1,hudBank=-2,hudAmmo=-1,hudNews='',hudDial=-1,hudInfo='',hover=null;
 function hud(){
   const bk=G.b[5].level?G.bank:-1;
   const bump=el=>{el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump');};
@@ -485,6 +491,9 @@ function hud(){
   if(hudAmmo!==p.ammo){hudAmmo=p.ammo;[...$('ammo').children].forEach((el,i)=>el.classList.toggle('on',i<hudAmmo));}
   if(hudNews!==nw){hudNews=nw;$('news').textContent=nw;}
   document.body.classList.toggle('armed',G.state==='play'&&!G.trip&&!!p.sight);
+  // the bar at the bottom: what is here and what a coin does; the mouse, if it is over the picture, looks instead of the rider
+  const inf=info(hover&&performance.now()-hover.t<4000?hover.x:p.x),key=inf?inf[0]+'|'+inf[1]:'';
+  if(key!==hudInfo){hudInfo=key;const el=$('info');el.classList.toggle('on',!!inf);if(inf){el.firstChild.textContent=inf[0];el.lastChild.textContent=inf[1];}}
 }
 
 // ---------- time of day
@@ -591,6 +600,57 @@ function news(){
   if(G.report&&G.t<.22)out.unshift(G.report);
   return out.join(' · ');
 }
+const NAME={store:'Store',saloon:'Saloon',sheriff:'Sheriff',stable:'Stable',station:'Station',bank:'Bank',gate:'Gate',train:'Train ticket',hall:'Town centre',bordello:'Bordello',wire:'Barbed wire',
+  doctor:'Doctor',church:'Church',forge:'Blacksmith',telegraph:'Telegraph',claim:'Claim',coach:'Stagecoach'};
+// what each level of a thing gives, in a few words
+const GIVES={
+  store:['Pays 4 coins a day and sells tools for prospectors.','Pays 8 coins a day.','Pays 12 coins a day.'],
+  saloon:['Pays 3 coins a day and shelters townsfolk at night.','Pays 6 coins a day.','Pays 9 coins a day.'],
+  sheriff:['Lets you make deputies, who guard the gates at night.','Deputies see further and shoot faster.','Every deputy hit counts double.'],
+  stable:['A faster horse, and lets you hire ranchers.','A faster horse still, and bigger herds.'],
+  station:['Brings the railroad, your way to the next town.'],
+  bank:['Keeps coins safe from bandits and pays interest.','Cannot be robbed, and pays more interest.'],
+  bordello:['Pays 5 coins a day and draws a newcomer a day.','Pays 10 coins a day and draws two newcomers.','Pays 15 coins a day and draws three newcomers.'],
+  hall:['A town square. Lets buildings reach level 2.','A clock tower. Lets buildings reach level 3.'],
+  gate:['A barricade. Raiders on this side must break it first.','A stockade. Takes twice the beating.','A gatehouse with a Gatling gun.'],
+  wire:['Slows raiders and throws riders off their horses.','Slows them more and cuts whoever crosses.','Adds a sharpshooter who picks raiders off.'],
+  doctor:['Anyone hurt in a raid is back at dawn.'],
+  church:['Lets you ring the bell to send everyone to cover.'],
+  forge:['Deputies shoot further and miss less.','Your horse is faster and tires half as fast.'],
+  telegraph:["Shows which side tonight's raid comes from."],
+  claim:['A prospector leaves 4 coins here each dawn.','A guard. It then pays 7 coins a day, always.'],
+  train:['Ride to the next town with half your coins.']};
+const RACK={miner:['Tool rack','a prospector, who digs gold at the mine west of town'],deputy:['Badge rack','a deputy, who guards the gates at night'],rancher:['Rope rack','a rancher, who raises cattle that pay 2 coins each a day']};
+function info(x){
+  if(G.state!=='play'||G.trip)return null;
+  const p=G.player;
+  for(const b of G.b)if(DEF[b.type].tool&&b.level&&b.x>=0&&Math.abs(x-rackX(b))<9){
+    const [what,does]=RACK[DEF[b.type].tool];
+    return [what,b.badges+b.incoming<3?`1 coin turns a townsperson into ${does}.`:'Full. Waiting for townsfolk to pick these up.'];
+  }
+  const b=zoneOf(x);
+  if(!b){
+    if(G.drifters.some(d=>Math.abs(d.x-x)<34))return ['Drifter','Toss a coin near him and he joins the town.'];
+    if(troughs().some(t=>Math.abs(t-x)<11))return ['Water trough','Stand here a moment to rest your horse.'];
+    return null;
+  }
+  const nm=NAME[b.type]||b.type,tg=target(x),L=b.level,gv=GIVES[b.type]||[];
+  if(b.building)return [nm,'Being built. More townsfolk build it faster.'];
+  if(tg){
+    if(tg.k==='mend')return ['Gate','1 coin patches some of the damage.'];
+    if(tg.k==='hire')return ['Gatehouse','4 coins hires a rifleman for tonight. Up to three.'];
+    if(tg.k==='bell')return ['Church bell','1 coin. Everyone runs indoors and deputies man the gates until dawn.'];
+    if(tg.k==='bank')return ['Bank',p.coins?'1 coin goes into the bank, safe from bandits.':'Toss to take 5 coins back out.'];
+    const c=costOf(b),left=c-b.paid-b.incoming;
+    if(b.type==='coach')return [nm,`${c} coins hires a guard. If the stage gets through, you are paid ${coachPay()} at dawn.`];
+    const verb=b.type==='train'?'':L?' to upgrade':b.type==='claim'?' to stake':b.type==='hall'||DEF[b.type].gate||DEF[b.type].wire?' to build':b.type==='station'?' to rebuild':' to open';
+    return [nm,`${c} ${c>1?'coins':'coin'}${verb}${left<c?` (${left} to go)`:''}. ${gv[L]||''}`];
+  }
+  if(DEF[b.type].virt)return null;
+  if(b.type==='station'&&!L)return [nm,`Needs every building open and the clock tower. Still to do: ${todo().join(', ')}.`];
+  if(DEF[b.type].cost[L])return L>=cap(b)?[nm,'As good as it gets for now. Raise the town centre to go further.']:null;
+  return [nm,'Finished. '+(gv[L-1]||'')];
+}
 function updRider(dt,fresh,shoes,d){
   const p=G.player,slow=Math.abs(p.vx)<50,atT=slow&&troughs().some(x=>Math.abs(x-p.x)<11);
   if(fresh){
@@ -620,12 +680,7 @@ function updRider(dt,fresh,shoes,d){
   }
   const st=G.b[0];
   if(p.ammo<6&&st.level&&!st.building&&p.x>st.x-6&&p.x<st.x+st.w+12){p.ammo=6;sfx.click();hint('reload');}
-  if(G.dark>.3){const z=zoneOf(p.x);if(z&&DEF[z.type].gate&&z.level&&z.hp>0){
-    if(z.hp<GHP[z.level])hint('mend0',false,'After dark, coins tossed at a damaged gate go to patching it.');
-    else if(z.level>2)hint('hire0',false,'After dark, coins tossed at a gatehouse hire riflemen for the night: 4 coins a man, up to three.');
-  }}
   const cl=G.b[17];
-  if(G.town&&!cl.level&&Math.abs(p.x-cl.x-15)<45)hint('claim0',false,`An abandoned claim. Stake it for ${costOf(cl)} coins and a prospector will work it for you.`);
 }
 function ringBell(b){G.bell=true;b.ring=3;sfx.bell();hint('bell',true);for(const f of G.folk)f.goal='';}
 function dawnNew(){
@@ -2319,7 +2374,7 @@ function resize(){
   ctx.imageSmoothingEnabled=false;
 }
 reset();addEventListener('resize',resize);resize();
-window.dustfall={todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
+window.dustfall={info,todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
 
 // ---------- input
 const KEYS={ArrowLeft:-1,a:-1,A:-1,ArrowRight:1,d:1,D:1},FIREKEYS=['f','F','x','X','Enter','ArrowUp','w','W'];
@@ -2346,6 +2401,8 @@ pad.addEventListener('pointermove',e=>{if(e.pointerId===padId)padSet(e);});
 for(const ev of ['pointerup','pointercancel'])pad.addEventListener(ev,e=>{if(e.pointerId===padId){padId=null;input.stick=0;knob.style.transform='';}});
 toss.addEventListener('pointerdown',e=>{input.dropTouch=true;toss.classList.add('on');e.preventDefault();});
 for(const ev of ['pointerup','pointercancel','pointerleave'])toss.addEventListener(ev,()=>{input.dropTouch=false;toss.classList.remove('on');});
+stage.addEventListener('pointermove',e=>{if(e.pointerType!=='mouse')return;const r=cv.getBoundingClientRect();hover={x:G.cam+(e.clientX-r.left)/r.width*W,t:performance.now()};});
+stage.addEventListener('pointerleave',()=>{hover=null;});
 const fireB=$('fire');
 fireB.addEventListener('pointerdown',e=>{input.fireTouch=input.fireTap=true;fireB.classList.add('on');e.preventDefault();});
 for(const ev of ['pointerup','pointercancel','pointerleave'])fireB.addEventListener(ev,()=>{input.fireTouch=false;fireB.classList.remove('on');});addEventListener('contextmenu',e=>e.preventDefault());
