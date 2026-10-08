@@ -1061,7 +1061,7 @@ function breakGate(g){
 function updBandits(dt){
   const p=G.player;
   for(const q of [...G.bandits]){
-    const x0=q.x;q.cd-=dt;q.hurt-=dt;if(q.hurt>.1)q.x+=q.side*36*dt;      // a hit knocks them back a step
+    const x0=q.x;q.cd-=dt;q.hurt-=dt;if(q.hurt>.1)q.x+=q.side*36*dt;if(q.kind==='rider'&&Math.abs(q.vx)>45&&Math.random()<dt*9)dust(q.x-q.dir*8,0,1);      // a hit knocks them back a step
     if(q.torch&&q.state==='raid'&&Math.random()<dt*5)G.parts.push({x:q.x+q.dir*4,h:q.kind==='rider'?32:21,vx:rnd(-6,6),vh:rnd(8,18),life:0,max:rnd(.4,.9),col:'#ff9a2e',grav:0,lit:1});
     if(G.t<.5&&G.dark<.45)q.state='flee';
     banditAct(q,dt,p);if(G.state!=='play')return;
@@ -1271,6 +1271,7 @@ function updHerd(dt){
   }
 }
 function updWorld(dt){
+  if((G.dark>.35||BIO==='snow')&&Math.random()<dt*1.6){const r=backRow().filter(h=>h.i%7!==3),h=r[Math.floor(Math.random()*r.length)];if(h){const s=backShape(h);puff(h.x+(s.w>>1)-5,s.hh+13,'#bdb6ad');}}
   if(BIO==='snow'&&G.state==='play'){       // breath in the cold
     const p=G.player,f=G.folk[Math.floor(Math.random()*G.folk.length)];
     if(Math.random()<dt*1.5)G.parts.push({x:p.x+p.dir*13,h:17,vx:p.dir*5+p.vx*.3,vh:4,life:0,max:.9,col:'#f4f8ff',grav:0});
@@ -1760,6 +1761,25 @@ function drawWire(sx,b,L){
   }
 }
 const lamps=()=>G.b[9].level?[1008,1220,1389,1484,1577,1694,...(SHIFT?[1774,1852,1942,2025]:[])]:[];
+// behind main street: a tent or two at first, then houses, one more for every two townsfolk
+function backRow(){
+  const gE=G.b[7].x-34,out=[];
+  for(let x=G.b[6].x+46,i=0;x<gE;x+=31,i++){const hx=x+Math.floor(hash(i*3.3+G.town)*12);if(Math.abs(hx-1206)>15&&Math.abs(hx-992)>13)out.push({x:hx,k:hash(i*7.7+G.town*1.3),i});}
+  return out.sort((a,z)=>a.k-z.k).slice(0,Math.min(out.length,G.folk.length>>1));
+}
+const BACKW=[[176,150,118],[150,128,112],[168,132,104],[140,146,150],[182,160,130]],BACKR=[[110,70,56],[84,74,78],[96,60,48],[70,80,92],[120,84,60]];
+const backShape=h=>{const t=Math.floor(h.k*1000)%5;return {t,w:16+(t%3)*4,hh:13+(t%2)*4,tent:h.i%7===3};};
+function drawBack(row,cam,sb){
+  for(const h of row){
+    const x=Math.round(h.x-cam);if(x<-30||x>W+30)continue;
+    const g=GY-3,{t,w,hh,tent}=backShape(h),w2=w>>1;
+    if(tent){const tc=css(mixA([196,184,156],sb,.3));for(let k=0;k<10;k++)R(x-k,g-7+k,2*k+1,1,tc);R(x-1,g-2,2,5,'#3a2e26');continue;}
+    const wc=css(mixA(BACKW[t],sb,.3)),ws=css(mixA(BACKW[t].map(v=>v*.76),sb,.3)),rc=css(mixA(BACKR[t],sb,.3)),st=(w+4)/14;
+    R(x+w2-6,g-hh-9,2,7,ws);R(x-w2,g-hh,w,hh+3,wc);R(x+w2-3,g-hh,3,hh+3,ws);
+    for(let k=0;k<7;k++)R(x-w2-2+k*st,g-hh-k-1,w+4-2*k*st,1,rc);
+    R(x-w2+3,g-hh+4,4,5,'#3a5266');if(w>18)R(x+w2-8,g-hh+4,4,5,'#3a5266');R(x-1,g-4,3,7,css(mixA([70,46,30],sb,.3)));
+  }
+}
 // a lot staked out for a building this town does not have yet
 function drawLot(sx,w){
   const g=GY,c='#6a5a4a',tx=sx+(w>>1)-7;
@@ -2084,8 +2104,15 @@ function drawFore(cam){
 function draw(){
   const cam=Math.round(G.cam+(G.shake>0?rnd(-2,2)*G.shake*4:0)),dark=G.dark,[st,sb]=skyAt(G.t),p=G.player;
   ctx.clearRect(0,0,W,H);LEAN=(.5-(G.t<.68?clamp(G.t/.66,0,1):.5))*30;
-  drawFar(cam,sb);drawSpires(cam,sb);drawMid(cam,sb);drawBirds(cam);
+  drawFar(cam,sb);
+  if(G.night&&G.night.n&&G.t>.58&&G.t<.76){
+    const n=Math.min(9,2+(G.night.n>>1)),x0=G.side<0?W*.08:W*.92-n*9,c=css(mixA([40,24,20],sb,.25));ctx.globalAlpha=Math.min(1,(G.t-.58)/.04,(.76-G.t)/.02);
+    for(let i=0;i<n;i++){const x=Math.round(x0+i*9+hash(i+G.day)*3),y=GY-11-(i%2),d=-G.side;R(x-2,y-3,5,2,c);R(x-2,y-1,1,2,c);R(x+2,y-1,1,2,c);R(x+d*3-(d<0?0:0),y-5,1,2,c);R(x,y-6,1,3,c);P(x,y-7,c);}
+    ctx.globalAlpha=1;
+  }
+  drawSpires(cam,sb);drawMid(cam,sb);drawBirds(cam);
   drawPoles(cam);drawPerch(cam);drawMission(392-cam);drawArch(EX(2330)-cam);drawMine(MINE-cam);drawWindmill(992-cam);drawTower(1206-cam);if(BIO==='canyon')drawCliff(cam);
+  const brow=backRow();drawBack(brow,cam,sb);
   for(const b of G.b){
     const sx=b.x-cam;if(sx>W+20||sx+b.w<-20||DEF[b.type].virt)continue;
     if(DEF[b.type].wall||b.level)shadow(sx+b.w/2,b.w+(DEF[b.type].wall?14:4));facade(sx,b,b.level);
@@ -2162,6 +2189,12 @@ function draw(){
   // lit windows go on first so nobody walks behind the glass; people get their own layer and a lighter coat of night
   const la=clamp(dark*1.4,0,1),main=ctx;
   for(const b of G.b)lights(b.x-cam,b,b.building?0:la);
+  if(la>0)for(const h of brow){        // the back row lights its windows
+    const {w,hh,tent}=backShape(h),x=Math.round(h.x-cam),w2=w>>1;
+    if(tent||x<-30||x>W+30||G.b.some(b=>b.x>=0&&DEF[b.type].wall&&h.x>b.x-12&&h.x<b.x+b.w+12))continue;
+    ctx.globalAlpha=la*(h.i%4?1:.25);R(x-w2+3,GY-3-hh+4,4,5,'#ffcf6b');if(w>18)R(x+w2-8,GY-3-hh+4,4,5,'#ffcf6b');ctx.globalAlpha=1;
+    if(h.i%4)glow(x-w2+5,GY-hh+3,10,'255,180,70',.28*la);
+  }
   if(la>0){      // raiders' campfires on the far mesas: the bigger the night ahead, the more of them
     const n=Math.min(10,Math.ceil(raidSize(G.day-G.day0+G.town+(G.t<.5?0:1))/3)),span=W+240;
     for(let i=0;i<n;i++){
@@ -2212,6 +2245,11 @@ function draw(){
     ctx.drawImage(HORSE2.l,sx-15,GY-21);line(sx-12,GY-15,sx-16,GY-9,'#5a4636');
   }}
   coat('16,14,54',.3*dark);ctx=main;ctx.drawImage(ppl,0,0);
+  if(dark>.55)for(const f of G.folk){
+    if(f.hidden||f.sit||f.role==='deputy')continue;
+    const x=Math.round(f.x-cam)+(f.dir||1)*3;if(x<-12||x>W+12)continue;
+    P(x,GY-6,'#ffe9a8');P(x,GY-7,'#5a4636');glow(x,GY-6,11,'255,200,110',.3);
+  }
   for(const q of G.bandits)if(q.torch&&q.state==='raid'){        // the flames go on after the night does, so they burn bright
     const tx=Math.round(q.x-cam)+q.dir*4,ty=q.kind==='rider'?GY-31:GY-19,fl=Math.sin(G.clock*19+q.id)>0?1:0;if(tx<-30||tx>W+30)continue;
     R(tx-1,ty-2-fl,2,3+fl,'#ff8a2a');P(tx,ty-3-fl,'#ffe07a');P(tx-fl,ty-1,'#ffe07a');glow(tx,ty,26,'255,150,60',storm()?.2:.42);
@@ -2291,6 +2329,10 @@ function draw(){
     const dv=G.devil,x=dv.x-cam,k=Math.min(1,dv.t/1.5,(16-dv.t)/1.5);
     if(x>-40&&x<W+40)for(let j=0;j<26;j++){const hh=j*1.9,r=1.5+j*.62,a=G.clock*9+j*.85,cx=x+Math.sin(G.clock*1.3+j*.25)*2.5+j*.35*dv.dir;ctx.globalAlpha=k*.16;R(cx-r,GY-3-hh,r*2+1,2,GP[7]);ctx.globalAlpha=k*(.85-j*.022);R(x+Math.cos(a)*r+Math.sin(G.clock*1.3+j*.25)*2.5+j*.35*dv.dir,GY-2-hh,Math.sin(a)>0?2:3,j%4?1:2,j%3?GP[7]:j%2?GP[5]:GP[1]);}
     ctx.globalAlpha=1;
+  }
+  if(G.state==='play'&&G.bandits.some(q=>q.state==='raid'&&q.x>G.b[6].x+16&&q.x<G.b[7].x-2)){
+    const dg=ctx.createRadialGradient(W/2,H*.5,H*.42,W/2,H*.5,Math.max(W,H)*.72);dg.addColorStop(0,'rgba(190,30,20,0)');dg.addColorStop(1,`rgba(190,30,20,${(.2+.1*Math.sin(G.clock*5)).toFixed(3)})`);
+    ctx.fillStyle=dg;ctx.fillRect(0,0,W,H);
   }
   if(G.bolt)R(0,0,W,H,`rgba(222,232,255,${(.38*Math.pow(1-G.bolt.t/.45,2)).toFixed(3)})`);
   if(G.wx||BIO==='snow')drawWeather();
