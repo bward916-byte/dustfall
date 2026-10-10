@@ -120,10 +120,31 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #tour small{display:block;margin-top:5px;font-size:12px;color:rgba(240,223,180,.75)}
 #tourx{font:inherit;color:var(--cream);background:none;border:1px solid rgba(240,223,180,.5);border-radius:3px;padding:2px 9px;margin-left:8px;cursor:pointer}
 #tourp{position:absolute;left:0;bottom:0;height:3px;width:0;background:var(--gold)}
-.tour #pad,.tour #toss,.tour #fire,.tour #hint,.tour #mapb{display:none}
+.tour #pad,.tour #toss,.tour #fire,.tour #hint,.tour #mapb,.tour #folkb{display:none}
 @media (max-width:560px){#tour{top:86px;font-size:14px}}
 #tour.low{top:auto;bottom:12px}
 .touch #tourk{display:none}
+#folkb{pointer-events:auto;display:flex;align-items:center;gap:6px;font:inherit;font-size:17px;color:var(--cream);background:rgba(36,22,15,.5);border:1px solid rgba(240,223,180,.5);border-radius:4px;padding:3px 9px 3px 8px;cursor:pointer;text-shadow:inherit}
+#folkb:focus-visible,#roster button:focus-visible{outline:3px solid var(--cream);outline-offset:3px}
+#folkb.stuck{border-color:var(--gold);color:var(--gold);animation:stuck 1s ease-in-out infinite alternate}
+@keyframes stuck{to{background:rgba(168,69,46,.85)}}
+.man{position:relative;display:inline-block;width:12px;height:15px}
+.man::before{content:"";position:absolute;left:3px;top:0;width:6px;height:6px;border-radius:50%;background:currentColor}
+.man::after{content:"";position:absolute;left:0;bottom:0;width:12px;height:8px;border-radius:6px 6px 1px 1px;background:currentColor}
+#roster{position:absolute;inset:0;display:grid;place-items:center;background:rgba(18,10,6,.74);padding:14px;z-index:5}
+#roster[hidden]{display:none}
+#rosin{width:min(100%,26rem);background:#ead9ae;color:#2a1a10;border:3px solid #6a4a2e;border-radius:6px;box-shadow:0 0 0 2px #2a1a10,0 14px 40px rgba(0,0,0,.5);padding:12px 14px;font-family:Georgia,serif;text-align:center}
+#rosin h2{margin:0 0 6px;font-family:Rye,Rockwell,Georgia,serif;font-weight:400;font-size:22px}
+#jobs{list-style:none;margin:0;padding:0;text-align:left}
+#jobs li{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px dashed rgba(106,74,46,.6)}
+#jobs li b{flex:none;width:2ch;text-align:right;font-size:24px;font-family:Rye,Rockwell,Georgia,serif;font-weight:400;color:#6a2f26}
+#jobs li span{flex:1;font-size:16px;line-height:1.2}
+#jobs li small{display:block;font-size:12px;opacity:.75}
+#roster button{font:inherit;font-size:14px;color:#2a1a10;background:#f2c14e;border:0;border-bottom:3px solid #b9861f;border-radius:4px;padding:8px 12px 6px;cursor:pointer;white-space:nowrap}
+#roster button:disabled{opacity:.35;cursor:default}
+#rosin p{margin:8px 0 10px;font-size:12px;opacity:.8}
+@media (max-width:560px){#folkb{font-size:15px;padding:2px 7px}}
+@media (max-height:420px){#rosin{padding:8px 12px}#jobs li{padding:4px 0}#rosin p{margin:5px 0 7px}}
 </style>
 </head>
 <body class="title">
@@ -132,6 +153,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
   <span id="purse"><i class="coin"></i><b id="coins">8</b></span>
   <span id="ammo" aria-label="Rounds in your six-shooter"><i></i><i></i><i></i><i></i><i></i><i></i></span>
   <span id="vault" aria-label="In the bank" hidden><i class="safe"></i><b id="bankc">0</b></span>
+  <button id="folkb" type="button" aria-label="Townsfolk free to build. Tap for jobs"><i class="man"></i><b id="folkn">0</b></button>
   <span id="news" role="status"></span>
   <i id="dial" aria-hidden="true"><b></b></i>
   <span id="day">Day 1</span>
@@ -142,6 +164,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 <div id="hint" role="status"></div>
 <div id="tour" hidden><span id="tourt"></span><small><span id="tourn"></span> · tap<span id="tourk"> or press Space</span> for the next scene <button id="tourx" type="button">Exit tour</button></small><i id="tourp"></i></div>
 <div id="map" hidden><div id="mapin"><h2 id="maph">The line</h2><ol id="stops"></ol><svg id="loco" viewBox="0 0 30 18"><path d="M2 12V6h7V2h8v4h7l4 6z" fill="#2a1a10"/><rect x="11" y="4" width="4" height="3" fill="#ead9ae"/><rect x="20" y="1" width="3" height="5" fill="#2a1a10"/><circle cx="8" cy="14" r="3.2" fill="#a8452e"/><circle cx="18" cy="14" r="3.2" fill="#a8452e"/><circle cx="25" cy="15" r="2.2" fill="#a8452e"/></svg><p id="mapnote"></p></div></div>
+<div id="roster" hidden><div id="rosin"><h2>Who does what</h2><ul id="jobs"></ul><p>Releasing someone makes him plain townsfolk again, free to build. The tool is not refunded.</p><button type="button" id="rosx">Done</button></div></div>
 <div id="pad" aria-label="Thumbstick: ride left or right">
   <svg viewBox="0 0 24 24"><path d="M16 4 6 12l10 8z"/></svg><i id="knob"></i><svg viewBox="0 0 24 24"><path d="m8 4 10 8-10 8z"/></svg>
 </div>
@@ -427,7 +450,7 @@ const HINTS={
   box:'An old strongbox. Ride over coins to pick them up.',
   recruit:'A drifter joins the town. Ride up to a boarded building and toss coins to fix it up.',
   funded:'Paid for. Your townsfolk will hammer until it is done.',
-  noworkers:'Paid for, but there is nobody to do the work. Recruit a drifter.',
+  noworkers:'Paid for, but nobody is free to build. Recruit a drifter, or tap the head count at the top to take someone off a job.',
   saloon1:'The saloon is open. It pays out every morning and shelters townsfolk at night.',
   saloon2:'A second floor. The saloon pays double now.',
   store1:'The store is open and pays 4 coins every morning. Toss a coin at the tool rack on its left to outfit a prospector.',
@@ -492,13 +515,14 @@ function hint(k,again,txt){
   const el=$('hint');el.textContent=txt||HINTS[k];el.classList.add('on');
   clearTimeout(hintTimer);hintTimer=setTimeout(()=>el.classList.remove('on'),Math.max(6500,el.textContent.length*62));
 }
-let hudCoins=-1,hudDay=-1,hudBank=-2,hudAmmo=-1,hudNews='',hudDial=-1,hudInfo='',hover=null;
+let hudFolk='',hudCoins=-1,hudDay=-1,hudBank=-2,hudAmmo=-1,hudNews='',hudDial=-1,hudInfo='',hover=null;
 function hud(){
   const bk=G.b[5].level?G.bank:-1;
   const bump=el=>{el.classList.remove('bump');void el.offsetWidth;el.classList.add('bump');};
   if(hudCoins!==G.player.coins){hudCoins=G.player.coins;$('coins').textContent=hudCoins;bump($('coins'));}if(hudDay!==G.day){hudDay=G.day;$('day').textContent='Day '+hudDay;}
   {const a=Math.round(G.t*360);if(a!==hudDial){hudDial=a;$('dial').firstChild.style.transform=`rotate(${-a}deg)`;}}     // the colour under the pointer is now; what comes next is clockwise
   if(hudBank!==bk){hudBank=bk;$('vault').hidden=bk<0;$('bankc').textContent=bk;bump($('bankc'));}
+  {const n=head('folk'),stuck=!n&&G.b.some(b=>b.building),key=n+(stuck?'!':'');if(hudFolk!==key){hudFolk=key;$('folkn').textContent=n;$('folkb').classList.toggle('stuck',stuck);}}
   const p=G.player,nw=news();
   if(hudAmmo!==p.ammo){hudAmmo=p.ammo;[...$('ammo').children].forEach((el,i)=>el.classList.toggle('on',i<hudAmmo));}
   if(hudNews!==nw){hudNews=nw;$('news').textContent=nw;}
@@ -647,7 +671,7 @@ function info(x){
     return null;
   }
   const nm=NAME[b.type]||b.type,tg=target(x),L=b.level,gv=GIVES[b.type]||[];
-  if(b.building)return [nm,'Being built. More townsfolk build it faster.'];
+  if(b.building)return [nm,head('folk')?'Being built. More townsfolk build it faster.':'Nobody is free to build this. Tap the head count at the top to take someone off a job.'];
   if(tg){
     if(tg.k==='mend')return ['Gate','1 coin patches some of the damage.'];
     if(tg.k==='hire')return ['Gatehouse','4 coins hires a rifleman for tonight. Up to three.'];
@@ -854,6 +878,29 @@ function nextTown(){
 }
 const gameOver=()=>TOUR?0:banner('over','Run out of town',`They caught you without a coin to your name. You lasted ${G.day} ${G.day>1?'days':'day'}.`,'Ride again');
 
+// ---------- the roster: a count for each job, and a way to take someone off a job so there are hands to build
+const JOBS=[['folk','Townsfolk','Free hands. They build, and pay 1 coin each at dawn.'],['deputy','Deputies','Guard the gates at night.'],
+  ['miner','Prospectors','Dig gold at the mine.'],['rancher','Ranchers','Raise cattle in the pasture.']];
+const head=role=>G.folk.filter(f=>f.role===role).length;
+function showRoster(){
+  const ul=$('jobs');ul.textContent='';
+  for(const [role,name,does] of JOBS){
+    const n=head(role),li=document.createElement('li'),b=document.createElement('b'),sp=document.createElement('span'),sm=document.createElement('small');
+    b.textContent=n;sp.textContent=name;sm.textContent=does;sp.append(sm);li.append(b,sp);
+    if(role!=='folk'){const bt=document.createElement('button');bt.type='button';bt.textContent='Release one';bt.disabled=!n;bt.dataset.role=role;li.append(bt);}
+    ul.append(li);
+  }
+  $('roster').hidden=false;paused=true;
+}
+function hideRoster(){$('roster').hidden=true;paused=false;held.clear();input.key=0;}
+// the one released goes back to plain townsfolk: he keeps nothing of the job, and the deputies left close ranks
+function release(role){
+  const c=G.folk.filter(f=>f.role===role);if(!c.length)return;
+  const f=c.find(k=>!k.sick)||c[0];
+  Object.assign(f,{role:'folk',goal:'',badge:null,aim:false,dig:false,tend:false,ore:0});
+  if(role==='deputy'){G.deps=0;for(const d of G.folk)if(d.role==='deputy'){d.side=G.deps%2?1:-1;d.slot=G.deps>>1;G.deps++;}}
+  dust(f.x,6,6);sfx.click();save();showRoster();
+}
 // ---------- the tour: every part of the game in a few minutes. Each scene sets the world up, then the tour rides and tosses for you
 let TOUR=null;
 const TLOG=[{d:11,star:true},{d:9,star:true},{d:9,star:false},{d:8,star:true},{d:9,star:false}];
@@ -1087,7 +1134,7 @@ function updCoins(dt){
         else for(let i=0;i<n;i++)G.coins.push({x:c.tx,h:c.th,st:'back',age:-i*.07});
       }else if(DEF[b.type].claim){b.paid=0;b.level++;b.pop=.6;confetti(b.x+15,30,12);sfx.fanfare();hint('claim'+b.level,true);save();checkStar();}
       else if(DEF[b.type].virt){b.paid=0;startTrip();}
-      else{b.building=true;b.progress=0;hint(G.folk.some(f=>f.role==='folk')?'funded':'noworkers');}
+      else{b.building=true;b.progress=0;hint(head('folk')?'funded':'noworkers',!head('folk'));}
     }
   }
 }
@@ -2541,7 +2588,7 @@ function resize(){
   ctx.imageSmoothingEnabled=false;
 }
 reset();addEventListener('resize',resize);resize();
-window.dustfall={tourStart,tourNext,tourEnd,tourAt:()=>TOUR?TOUR.i:-1,tourLen:()=>TSCN.length,info,todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
+window.dustfall={showRoster,hideRoster,release,tourStart,tourNext,tourEnd,tourAt:()=>TOUR?TOUR.i:-1,tourLen:()=>TSCN.length,info,todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
 
 // ---------- input
 const KEYS={ArrowLeft:-1,a:-1,A:-1,ArrowRight:1,d:1,D:1},FIREKEYS=['f','F','x','X','Enter','ArrowUp','w','W'];
@@ -2556,7 +2603,9 @@ addEventListener('keydown',e=>{
   }
   if(G.state==='intro'){e.preventDefault();if(G.intro.t>.6)endIntro(true);return;}
   if(G.state!=='play'){if(e.key==='Enter'||e.key===' '){e.preventDefault();start();}return;}
+  if(!$('roster').hidden){hideRoster();e.preventDefault();return;}
   if(!$('map').hidden){if(!mapBusy)hideMap();e.preventDefault();return;}
+  if(e.key==='t'||e.key==='T'){if(!G.trip)showRoster();return;}
   if(e.key==='m'||e.key==='M'){if(!G.trip)showMap();return;}
   if(KEYS[e.key]){held.add(e.key);input.key=KEYS[e.key];e.preventDefault();}
   if(e.key===' '||e.key==='ArrowDown'||e.key==='s'||e.key==='S'){input.dropKey=true;e.preventDefault();}
@@ -2584,7 +2633,7 @@ const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('h
 if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||navigator.maxTouchPoints>0)touchy();
 addEventListener('touchstart',touchy,{once:true,passive:true});
 // stop long-press text selection, the copy bubble, and double-tap or pinch zoom; real buttons still get their taps
-const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#demo,#tourx,#mute,#mapb,#map'))e.preventDefault();};
+const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#demo,#tourx,#mute,#mapb,#map,#folkb,#roster'))e.preventDefault();};
 for(const ev of ['touchstart','touchmove','touchend','gesturestart','selectstart','dblclick'])document.addEventListener(ev,quiet,{passive:false});
 // physical controller: left stick or d-pad rides, A / X or right trigger tosses, B / Y or right bumper fires, A or Start begins
 let padWas=false;
@@ -2596,6 +2645,8 @@ function pollPad(){
 addEventListener('gamepadconnected',()=>{if(G.state==='title')$('how').textContent='Controller: stick or d-pad to ride, A to toss a coin, B to fire.';});
 $('mapb').addEventListener('click',()=>{$('mapb').blur();if(G.state==='play'&&!G.trip)showMap();});
 $('map').addEventListener('click',()=>{if(!mapBusy)hideMap();});
+$('folkb').addEventListener('click',()=>{$('folkb').blur();if(G.state==='play'&&!G.trip&&!TOUR)showRoster();});
+$('roster').addEventListener('click',e=>{const bt=e.target.closest('button');if(!bt)hideRoster();else if(bt.dataset.role)release(bt.dataset.role);else hideRoster();});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').classList.toggle('off',muted);$('mute').blur();});
 
 // ---------- start and loop
