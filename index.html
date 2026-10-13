@@ -25,7 +25,13 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 .bump{animation:bump .28s}
 @keyframes bump{40%{transform:scale(1.4);color:#fff}}
 @media (prefers-reduced-motion:reduce){.bump{animation:none}}
-#ammo{display:flex;gap:3px;align-items:center}
+#ammo{display:flex;gap:3px;align-items:center;pointer-events:auto;font:inherit;color:inherit;text-shadow:inherit;background:none;border:0;padding:4px 2px;cursor:pointer}
+#ammo:focus-visible{outline:3px solid var(--cream);outline-offset:2px}
+#ammo.rl::after{content:"reloading";margin-left:5px;font-size:13px;letter-spacing:.04em;color:var(--gold);animation:rl .5s ease-in-out infinite alternate}
+@keyframes rl{to{opacity:.6}}
+@media (max-width:560px){#ammo.rl::after{content:none}}
+#fire.rl{background:conic-gradient(rgba(242,193,78,.75) calc(var(--rl,0)*1turn),rgba(36,22,15,.45) 0)}
+#fire.rl svg{opacity:.4}
 #ammo i{width:5px;height:12px;border-radius:2px 2px 1px 1px;border:1px solid rgba(240,223,180,.6);background:rgba(36,22,15,.45)}
 #ammo i.on{background:linear-gradient(#f2c14e 0 58%,#b9792a 58%);border-color:#6a4612}
 #news{flex:0 1 auto;min-width:0;font-family:Georgia,serif;font-size:13px;background:rgba(36,22,15,.6);padding:3px 9px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:none}
@@ -120,6 +126,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 #tour small{display:block;margin-top:5px;font-size:12px;color:rgba(240,223,180,.75)}
 #tourx{font:inherit;color:var(--cream);background:none;border:1px solid rgba(240,223,180,.5);border-radius:3px;padding:2px 9px;margin-left:8px;cursor:pointer}
 #tourp{position:absolute;left:0;bottom:0;height:3px;width:0;background:var(--gold)}
+.tour #ammo.rl::after{content:none}
 .tour #pad,.tour #toss,.tour #fire,.tour #hint,.tour #mapb,.tour #folkb{display:none}
 @media (max-width:560px){#tour{top:86px;font-size:14px}}
 #tour.low{top:auto;bottom:12px}
@@ -151,7 +158,7 @@ canvas{display:block;image-rendering:crisp-edges;image-rendering:pixelated;touch
 <div id="stage"><canvas id="game"></canvas></div>
 <div id="hud">
   <span id="purse"><i class="coin"></i><b id="coins">8</b></span>
-  <span id="ammo" aria-label="Rounds in your six-shooter"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+  <button id="ammo" type="button" aria-label="Rounds in your six-shooter. Tap to reload"><i></i><i></i><i></i><i></i><i></i><i></i></button>
   <span id="vault" aria-label="In the bank" hidden><i class="safe"></i><b id="bankc">0</b></span>
   <button id="folkb" type="button" aria-label="Townsfolk free to build. Tap for jobs"><i class="man"></i><b id="folkn">0</b></button>
   <span id="news" role="status"></span>
@@ -256,6 +263,18 @@ const maxed=()=>G.b.every(b=>b.x<0||DEF[b.type].virt||!DEF[b.type].cost[b.level]
 const label=b=>({hall:'town centre',wire:'barbed wire',gate:'gate',train:'train',claim:'claim',coach:'stagecoach guard',forge:'blacksmith',telegraph:'telegraph office',doctor:'doctor'})[b.type]||b.type;
 const popCap=()=>26+G.b[9].level*6+G.b[10].level*4;
 const ends=d=>d.posts.length?[d.posts[0],d.posts[d.posts.length-1]]:[];
+// what goes with you on the train: half of purse and bank together once the ticket is paid, never under 8 nor over 25
+const CARRY=[8,25];
+const purseOut=paid=>{const b=G.b[8];return G.player.coins+G.bank-(paid||G.trip?0:Math.max(0,costOf(b)-b.paid-b.incoming));};
+const carryOut=paid=>clamp(Math.max(0,purseOut(paid))>>1,CARRY[0],CARRY[1]);
+const carryWhy=paid=>{const h=Math.max(0,purseOut(paid)),n=h>>1;return n>CARRY[1]?`${CARRY[1]} is the most the train will carry`:n<CARRY[0]?`the railroad stakes you to ${CARRY[0]}`:`half of the ${h} you had in purse and bank`;};
+// reloading takes 5 seconds wherever you are, and every level of the store takes a second off
+const reloadTime=()=>5-G.b[0].level;
+function reload(){
+  const p=G.player;if(G.state!=='play'||G.trip||p.rl>0||p.ammo>=6)return;
+  p.rl=p.rlT=reloadTime();p.rlN=p.ammo;sfx.click();
+  hint('reload',false,`Reloading takes ${p.rlT} seconds. Each level of the store takes a second off.`);
+}
 const mk=(type,x,side)=>({type,x,home:x,w:DEF[type].w,level:0,paid:0,incoming:0,building:false,progress:0,robbed:false,badges:0,hp:0,side:side||0});
 const topOf=(b,L)=>{const d=DEF[b.type];return d.hall?[14,40,74][L]:d.h+(d.up&&L>1?22:0)+(d.gate&&L>1?8:0)+(d.gate&&L>2?8:0);};
 const tall=(b,L)=>topOf(b,L)+(b.type==='sheriff'&&L>1?34:0)+(b.type==='church'&&L?36:0)+(L>2?14:0);
@@ -268,12 +287,12 @@ function wins(b,L){
 }
 
 // ---------- state
-const input={key:0,stick:0,padAxis:0,dpad:0,dropKey:false,dropTouch:false,padDrop:false,fireKey:false,fireTouch:false,padFire:false};
+const input={key:0,stick:0,padAxis:0,dpad:0,dropKey:false,dropTouch:false,padDrop:false,fireKey:false,fireTouch:false,padFire:false,reload:false};
 function reset(town){
   town=town||0;layout(town);const river=BIO==='river';
   glance(false);cine(false);
   G={state:'title',t:.6,day:1,day0:0,town,bank:0,side:BIO==='canyon'||Math.random()<.5?1:-1,wx:null,coach:null,outlaw:null,owed:0,bell:false,raided:false,clock:0,dark:0,timeScale:1,cam:FIRE_X-205,nextId:1,deps:0,duskDone:false,shake:0,flash:0,fade:0,trip:null,raid:[],
-    player:{x:FIRE_X-20,vx:0,dir:-1,hold:0,phase:0,coins:8,cd:0,toss:0,st:0,ammo:6,gcd:0,gun:0,wind:1,blown:false,sight:null},
+    player:{x:FIRE_X-20,vx:0,dir:-1,hold:0,phase:0,coins:8,cd:0,toss:0,st:0,ammo:6,rl:0,gcd:0,gun:0,wind:1,blown:false,sight:null},
     coins:[],folk:[],drifters:[],bandits:[],parts:[],shots:[],herd:[],fallen:[],prints:[],
     weeds:[[300,26],[900,-21],[1500,24],[2400,-19]].map(([x,vx])=>({x,h:0,vh:0,vx})),
     b:[mk('store',1108),mk('saloon',1240),mk('sheriff',1400),mk('stable',1590),mk('station',EX(1700)),mk('bank',1020),mk('gate',958,-1),mk('gate',EX(1940),1),mk('train',STOP+64),mk('hall',1352),mk('bordello',1490),mk('wire',904,-1),mk('wire',EX(1975),1),
@@ -453,8 +472,8 @@ const HINTS={
   noworkers:'Paid for, but nobody is free to build. Recruit a drifter, or tap the head count at the top to take someone off a job.',
   saloon1:'The saloon is open. It pays out every morning and shelters townsfolk at night.',
   saloon2:'A second floor. The saloon pays double now.',
-  store1:'The store is open and pays 4 coins every morning. Toss a coin at the tool rack on its left to outfit a prospector.',
-  store2:'A second floor for the store. It pays double now.',
+  store1:'The store is open and pays 4 coins every morning. You reload a second quicker. Toss a coin at the tool rack on its left to outfit a prospector.',
+  store2:'A second floor for the store. It pays double now, and you reload in 3 seconds.',
   miner:'A prospector. They dig at the old mine west of town by day, so ride out and collect the gold.',
   sheriff1:'The sheriff is in. Toss a coin at the badge rack on its right and a townsperson will pin it on.',
   sheriff2:'A watchtower. Deputies see further and shoot faster.',
@@ -482,7 +501,7 @@ const HINTS={
   thrown:'The wire threw a rider. He is on foot now.',
   hall1:'A town square. Buildings can now be raised to a second level.',
   hall2:'A clock tower over main street. Buildings can now be raised to a third level.',
-  store3:'The biggest store for miles. It pays triple.',
+  store3:'The biggest store for miles. It pays triple, and you reload in 2 seconds.',
   saloon3:'The saloon pays triple now.',
   sheriff3:'Rifles for the deputies. Every hit counts double.',
   bank2:'A steel vault. The outlaw cannot rob it, and it pays more interest.',
@@ -495,11 +514,11 @@ const HINTS={
   boss:'An outlaw boss rides with them tonight. There is a bounty of 8 coins on him.',
   bounty:'The outlaw is down. The bounty is on the ground.',
   wounded:'The outlaw shot a deputy, who has handed in his badge.',
-  ticket:'The train is waiting. Toss 5 coins at the passenger car to ride on to the next ghost town with half your coins.',
+  ticket:'The train is waiting. Toss coins at the passenger car to ride on to the next ghost town.',
   station1:'The station is finished. Listen for the whistle.',
   wind:'Your horse is winded and has dropped to its usual pace. Let it walk or stand a moment, or water it at a trough.',
-  reload:'Reloaded. The store keeps your six-shooter full.',
-  dry:'Click. Empty. Ride past the store to reload.',
+  reload:'Reloading takes a few seconds. Each level of the store takes a second off.',
+  dry:'Reloading.',
   doctor1:'The doctor is in. Townsfolk and deputies hurt in a raid are patched up and back at dawn, not lost.',
   patched:'The doctor took them in. They will be back on their feet at dawn.',
   church1:'The church is raised. Toss a coin at it to ring the bell: everyone runs indoors and the deputies man the gates.',
@@ -524,7 +543,7 @@ function hud(){
   if(hudBank!==bk){hudBank=bk;$('vault').hidden=bk<0;$('bankc').textContent=bk;bump($('bankc'));}
   {const n=head('folk'),stuck=!n&&G.b.some(b=>b.building),key=n+(stuck?'!':'');if(hudFolk!==key){hudFolk=key;$('folkn').textContent=n;$('folkb').classList.toggle('stuck',stuck);}}
   const p=G.player,nw=news();
-  if(hudAmmo!==p.ammo){hudAmmo=p.ammo;[...$('ammo').children].forEach((el,i)=>el.classList.toggle('on',i<hudAmmo));}
+  {const k=p.ammo+(p.rl>0?.5:0);if(hudAmmo!==k){hudAmmo=k;const a=$('ammo'),f=$('fire');[...a.children].forEach((el,i)=>el.classList.toggle('on',i<p.ammo));a.classList.toggle('rl',p.rl>0);f.classList.toggle('rl',p.rl>0);f.style.setProperty('--rl',p.ammo/6);}}
   if(hudNews!==nw){hudNews=nw;$('news').textContent=nw;}
   document.body.classList.toggle('armed',G.state==='play'&&!G.trip&&!!p.sight);
   // the bar at the bottom: what is here and what a coin does; the mouse, if it is over the picture, looks instead of the rider
@@ -640,12 +659,12 @@ const NAME={store:'Store',saloon:'Saloon',sheriff:'Sheriff',stable:'Stable',stat
   doctor:'Doctor',church:'Church',forge:'Blacksmith',telegraph:'Telegraph',claim:'Claim',coach:'Stagecoach'};
 // what each level of a thing gives, in a few words
 const GIVES={
-  store:['Pays 4 coins a day and sells tools for prospectors.','Pays 8 coins a day.','Pays 12 coins a day.'],
+  store:['Pays 4 coins a day, sells tools for prospectors, and you reload in 4 seconds.','Pays 8 coins a day. You reload in 3 seconds.','Pays 12 coins a day. You reload in 2 seconds.'],
   saloon:['Pays 3 coins a day and shelters townsfolk at night.','Pays 6 coins a day.','Pays 9 coins a day.'],
   sheriff:['Lets you make deputies, who guard the gates at night.','Deputies see further and shoot faster.','Every deputy hit counts double.'],
   stable:['A faster horse, and lets you hire ranchers.','A faster horse still, and bigger herds.'],
   station:['Brings the railroad, your way to the next town.'],
-  bank:['Keeps coins safe from bandits and pays interest.','Cannot be robbed, and pays more interest.'],
+  bank:['Keeps coins safe from bandits. Pays 1 coin a day for every 8 inside, up to 3.','Cannot be robbed, and pays up to 6 a day.'],
   bordello:['Pays 5 coins a day and draws a newcomer a day.','Pays 10 coins a day and draws two newcomers.','Pays 15 coins a day and draws three newcomers.'],
   hall:['A town square. Lets buildings reach level 2.','A clock tower. Lets buildings reach level 3.'],
   gate:['A barricade. Raiders on this side must break it first.','A stockade. Takes twice the beating.','A gatehouse with a Gatling gun.'],
@@ -655,7 +674,7 @@ const GIVES={
   forge:['Deputies shoot further and miss less.','Your horse is faster and tires half as fast.'],
   telegraph:["Shows which side tonight's raid comes from."],
   claim:['A prospector leaves 4 coins here each dawn.','A guard. It then pays 7 coins a day, always.'],
-  train:['Ride to the next town with half your coins.']};
+  train:['Ride to the next town with half of your purse and bank.']};
 const RACK={miner:['Tool rack','a prospector, who digs gold at the mine west of town'],deputy:['Badge rack','a deputy, who guards the gates at night'],rancher:['Rope rack','a rancher, who raises cattle that pay 2 coins each a day']};
 function info(x){
   if(G.state!=='play'||G.trip)return null;
@@ -679,6 +698,7 @@ function info(x){
     if(tg.k==='bank')return ['Bank',p.coins?'1 coin goes into the bank, safe from bandits.':'Toss to take 5 coins back out.'];
     const c=costOf(b),left=c-b.paid-b.incoming;
     if(b.type==='coach')return [nm,`${c} coins hires a guard. If the stage gets through, you are paid ${coachPay()} at dawn.`];
+    if(b.type==='train')return [nm,`${c} ${c>1?'coins':'coin'}${left<c?` (${left} to go)`:''}. You step off with ${carryOut()} coins: half of what is left in your purse and bank, never under ${CARRY[0]} or over ${CARRY[1]}. Nothing else goes with you.`];
     const verb=b.type==='train'?'':L?' to upgrade':b.type==='claim'?' to stake':b.type==='hall'||DEF[b.type].gate||DEF[b.type].wire?' to build':b.type==='station'?' to rebuild':' to open';
     return [nm,`${c} ${c>1?'coins':'coin'}${verb}${left<c?` (${left} to go)`:''}. ${gv[L]||''}`];
   }
@@ -697,16 +717,19 @@ function updRider(dt,fresh,shoes,d){
     if(atT&&p.wind<1&&Math.random()<dt*14)G.parts.push({x:p.x+p.dir*9+rnd(-2,2),h:5,vx:rnd(-8,8),vh:rnd(8,18),life:0,max:.4,col:'#9fd0e8',grav:-60});
   }
   if(p.blown&&p.wind>.35)p.blown=false;
-  // the six-shooter: it picks the nearest raider in reach; riding past the open store fills it again
+  // the six-shooter: it picks the nearest raider in reach. Empty, it reloads by itself, one round at a time
   p.gcd-=dt;p.gun-=dt;
+  if(p.rl>0){p.rl-=dt;const n=p.rl>0?p.rlN+Math.floor((6-p.rlN)*(1-p.rl/p.rlT)):6;if(n>p.ammo){p.ammo=n;sfx.click();}if(p.rl<=0)p.rl=0;}
+  else if(p.ammo<=0)reload();
+  if(input.reload){input.reload=false;reload();}
   const rng=118*sightK();let tg=null,bd=rng;
   for(const q of hostiles()){const dd=Math.abs(q.x-p.x);if(dd<bd){bd=dd;tg=q;}}
   p.sight=tg;
-  if(tg&&p.ammo>0)hint('gun',false,document.body.classList.contains('touch')?'Raiders in range. Tap the gun button to fire your six-shooter. Six shots, and riding past the store reloads you.':'Raiders in range. Press F to fire your six-shooter. Six shots, and riding past the store reloads you.');
+  if(tg&&!p.rl)hint('gun',false,document.body.classList.contains('touch')?'Raiders in range. Tap the gun button to fire your six-shooter. Six shots, then it reloads by itself.':'Raiders in range. Press F to fire your six-shooter. Six shots, then it reloads by itself.');
   const fire=input.fireKey||input.fireTouch||input.padFire||input.fireTap;input.fireTap=false;if(!fire)p.glock=false;   // a tap shorter than a frame still counts
   if(fire&&!p.glock&&p.gcd<=0){
     p.glock=true;
-    if(p.ammo<=0){sfx.empty();p.gcd=.3;hint('dry',true);}
+    if(p.rl>0||p.ammo<=0){sfx.empty();p.gcd=.3;hint('dry',true,`Reloading. ${Math.ceil(p.rl)} ${Math.ceil(p.rl)>1?'seconds':'second'} to go.`);}
     else{
       const dir=tg?Math.sign(tg.x-p.x)||p.dir:p.dir,hit=!!tg&&Math.random()<.82;
       p.ammo--;p.gcd=.38;p.gun=.16;p.gdir=dir;sfx.shot(1);G.shake=Math.max(G.shake,.07);
@@ -714,8 +737,6 @@ function updRider(dt,fresh,shoes,d){
       if(hit){tg.hp-=2;tg.hurt=.18;dust(tg.x,8,3,'#d04a3a');if(tg.hp<=0){if(tg===G.outlaw)killOutlaw();else killBandit(tg);}}
     }
   }
-  const st=G.b[0];
-  if(p.ammo<6&&st.level&&!st.building&&p.x>st.x-6&&p.x<st.x+st.w+12){p.ammo=6;sfx.click();hint('reload');}
   const cl=G.b[17];
 }
 function ringBell(b){G.bell=true;b.ring=3;sfx.bell();hint('bell',true);for(const f of G.folk)f.goal='';}
@@ -842,7 +863,7 @@ function banner(state,h,tag,btn){
   if(state==='over')try{localStorage.removeItem(SAVE);}catch(e){}else save();
   $('title').querySelector('h1').textContent=h;$('tag').textContent=tag;$('go').textContent=btn;$('how').textContent='';
 }
-// boarding the train: it pulls out east, the screen fades, and you step off at the next dead town with half your coins
+// boarding the train: it pulls out east, the screen fades, and you step off at the next dead town with half of purse and bank
 const NEWB={1:'a stable and a bank',2:'a bordello and a doctor',3:'a church and a blacksmith',4:'a telegraph office'};
 const LAND=['Desert','River ford','Canyon','Badlands','Winter','Deep winter'],MAPNEW=['Saloon, store, sheriff','Adds stable, bank','Adds bordello, doctor','Adds church, blacksmith','Adds telegraph','Every building'];
 let paused=false,mapBusy=false;
@@ -857,7 +878,7 @@ function showMap(travel){
   });
   ol.append(loco);
   $('maph').textContent=lap?`The line, trip ${lap+1}`:'The line';
-  $('mapnote').textContent=travel?`On to ${nice(TOWNS[(G.town+1)%6])}`:'A star marks a town with every building at its best, and pays you 2 coins a day. Tap to close.';
+  $('mapnote').textContent=travel?`On to ${nice(TOWNS[(G.town+1)%6])} with ${carryOut()} coins`:'A star marks a town with every building at its best. Each starred town behind you pays 2 coins every morning. Tap to close.';
   $('map').hidden=false;mapBusy=!!travel;paused=!travel;
   const at=i=>{const m=ol.children[i].firstChild;loco.style.left=m.offsetLeft+m.offsetWidth/2+'px';loco.style.top=m.offsetTop+m.offsetHeight/2+'px';};
   loco.classList.remove('go');at(G.town%6);
@@ -866,11 +887,11 @@ function showMap(travel){
 function hideMap(){$('map').hidden=true;paused=mapBusy=false;held.clear();input.key=0;}
 function startTrip(){G.trip={t:0};G.player.vx=0;sfx.whistle();}
 function nextTown(){
-  const p=G.player,carry=clamp((p.coins+G.bank)>>1,8,25),keep={town:G.town+1,day:G.day+1,seen:G.seen,log:[...G.log,{d:G.day-G.day0,star:!!G.star}]};
+  const p=G.player,carry=carryOut(true),why=carryWhy(true),keep={town:G.town+1,day:G.day+1,seen:G.seen,log:[...G.log,{d:G.day-G.day0,star:!!G.star}]};
   reset(keep.town);Object.assign(G,keep,{day0:keep.day-1,state:'play',t:.08,fade:1});G.player.coins=carry;G.player.lock=true;
   const twist={river:' A river runs east of town, and anything crossing the ford is slowed.',canyon:' The gulch is a dead end to the west, so every raid comes from the east.',
     snow:' It is deep winter: cattle will not calve, but raiders on foot are slow in the snow.',desert:' Dust storms blow most days out here.'}[BIO];
-  const told=`${nice(townName())}. The line ends at another dead town, and this one is rougher. You stepped off with ${carry} coins.`+twist+(NEWB[G.town]?` New here: ${NEWB[G.town]}.`:'');
+  const told=`${nice(townName())}. The line ends at another dead town, and this one is rougher. You stepped off with ${carry} coins, ${why}. Nothing else came with you.`+twist+(NEWB[G.town]?` New here: ${NEWB[G.town]}.`:'');
   card(nice(townName()),'The next town down the line',3000,()=>{
     hint('arrive',true,told);
     setTimeout(()=>{if(G.state==='play')hint('bigger',false,'Watch for the stagecoach and for wanted posters at the sheriff, and there is an old claim to stake out west.');},16000);
@@ -1010,7 +1031,7 @@ function tourTick(dt){
   input.key=0;input.stick=ad>40?Math.sign(dx):ad>3?Math.sign(dx)*.5:0;
   input.dropKey=false;
   if(T.toss>0&&there&&p.cd<=0&&!T.tw){input.dropKey=true;T.toss--;T.tw=1;}else T.tw=0;
-  if(T.fire&&p.sight&&p.ammo>0&&p.gcd<=0&&!p.glock)input.fireTap=true;
+  if(T.fire&&p.sight&&!p.rl&&p.gcd<=0&&!p.glock)input.fireTap=true;
   $('tourp').style.width=Math.min(100,T.t/S.dur*100)+'%';
   if(T.t>=S.dur)tourNext(1);
 }
@@ -1366,7 +1387,7 @@ function updTrain(dt){
   }
   if(!tr.v){
     if(Math.random()<dt*1.2)puff(tr.x+10,25,'#cfc6ba');
-    if(tr.wait>0&&(tr.wait-=dt)<=0){G.focus=null;glance(false);card('The railroad is here',`It reached ${nice(townName())} on day ${G.day}`,3800,()=>hint('ticket',true,`The train will wait as long as you like. Finish the town if you want to, then toss ${costOf(G.b[8])} coins at the passenger car to ride on with half your coins.`));save();}
+    if(tr.wait>0&&(tr.wait-=dt)<=0){G.focus=null;glance(false);card('The railroad is here',`It reached ${nice(townName())} on day ${G.day}`,3800,()=>hint('ticket',true,`The train will wait as long as you like. Finish the town if you want to, then toss ${costOf(G.b[8])} coins at the passenger car. You step off at the next town with half of what is left in your purse and bank, never under ${CARRY[0]} or over ${CARRY[1]}. Buildings, townsfolk, cattle and loose coins stay here.`));save();}
     return;
   }
   tr.v=-clamp((tr.x-STOP)*1.1,10,120);tr.x+=tr.v*dt;
@@ -1415,7 +1436,7 @@ function updNests(dt){
 }
 function checkStar(){
   if(TOUR||G.star||!maxed())return;G.star=true;save();
-  setTimeout(()=>{if(G.state==='play'&&!G.trip){card('Boomtown',`Every building in ${nice(townName())} is at its best`,3800);fireworks(FIRE_X,7);sfx.fanfare();}},2600);
+  setTimeout(()=>{if(G.state==='play'&&!G.trip){card('Boomtown',`Every building in ${nice(townName())} is at its best`,3800,()=>hint('star',true,'This town has its star. Once you ride on, it sends you 2 coins every morning.'));fireworks(FIRE_X,7);sfx.fanfare();}},2600);
 }
 // a stray that has taken to you: it trots along while you are in town, waits at the gate when you ride out, and barks at raiders after dark
 function updDog(dt){
@@ -2238,6 +2259,7 @@ function drawHorse(sx,p,hs,rs,c1,c2){
   ctx.drawImage(d>0?(rs||RIDER).r:(rs||RIDER).l,Math.round(sx)-(d>0?4:3),rt);
   if(!rs&&mv)for(let i=1;i<=(gal?4:2);i++)P(Math.round(sx)-d*(2+i)-(d<0?1:0),rt+4+(Math.sin(G.clock*16-i*1.3)>0?0:1),i>2?'#8f2c23':'#b53a2e');   // his scarf streams behind
   if(p.toss>0){R(sx+d*2-(d<0?1:0),rt+1,1,5,'#e2aa7c');P(sx+d*2-(d<0?1:0),rt+5,'#3a2a20');}
+  if(p===G.player&&p.rl>0){const x=Math.round(sx)-6,y=rt-7;R(x-1,y-1,13,5,'#2a1a10');for(let i=0;i<6;i++){R(x+i*2,y,1,3,i<p.ammo?'#f2c14e':'#5a4a3c');if(i<p.ammo)P(x+i*2,y,'#fff3b0');}}
   if(p.gun>0){const gd=p.gdir||d,x=Math.round(sx);R(x+(gd>0?3:-7),rt+6,5,1,'#2a1c14');P(x+(gd>0?3:-3),rt+6,'#e2aa7c');if(p.gun>.09){R(x+(gd>0?8:-10),rt+5,3,3,'#ffe58a');P(x+(gd>0?11:-11),rt+6,'#fff');}}
   if(rear)ctx.restore();
 }
@@ -2483,7 +2505,7 @@ function draw(){
     // the horse's wind while it is short, a sight on whoever the six-shooter would hit, and the bell's coin slot
     const px=Math.round(p.x-cam),sg=p.sight,ch=G.b[14];
     if(p.wind<.995){R(px-8,GY-38,16,3,'#24160f');R(px-7,GY-37,Math.round(14*p.wind),1,p.blown?'#e0633c':'#8fd0e8');}
-    if(sg&&p.ammo>0){const x=Math.round(sg.x-cam),y=GY-8,c=blink?'#ff5a3c':'#ffd0a0';R(x-6,y,3,1,c);R(x+4,y,3,1,c);R(x,y-6,1,3,c);R(x,y+4,1,3,c);}
+    if(sg&&!p.rl){const x=Math.round(sg.x-cam),y=GY-8,c=blink?'#ff5a3c':'#ffd0a0';R(x-6,y,3,1,c);R(x+4,y,3,1,c);R(x,y-6,1,3,c);R(x,y+4,1,3,c);}
     if(tg&&tg.k==='hire'){const gb=tg.b,n=Math.floor((gb.pay||0)/4),x=Math.round(gb.x+7-cam);for(let i=0;i<3;i++)slot(x-6+i*6,GY-54,i<n,i===n);R(x-8,GY-48,17,3,'#24160f');R(x-7,GY-47,Math.round(15*((gb.pay||0)%4)/4),1,'#f2c14e');}
     if(tg&&tg.k==='bell')slot(Math.round(ch.x+27-cam),GY-topOf(ch,1)-56,ch.incoming>0,true);
   }
@@ -2588,7 +2610,7 @@ function resize(){
   ctx.imageSmoothingEnabled=false;
 }
 reset();addEventListener('resize',resize);resize();
-window.dustfall={showRoster,hideRoster,release,tourStart,tourNext,tourEnd,tourAt:()=>TOUR?TOUR.i:-1,tourLen:()=>TSCN.length,info,todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
+window.dustfall={reload,reloadTime,carryOut,showRoster,hideRoster,release,tourStart,tourNext,tourEnd,tourAt:()=>TOUR?TOUR.i:-1,tourLen:()=>TSCN.length,info,todo,maxed,showMap,hideMap,costOf,target,rackX,nextTown,dawn,dusk,postBounty,layout};   // for the test scripts
 
 // ---------- input
 const KEYS={ArrowLeft:-1,a:-1,A:-1,ArrowRight:1,d:1,D:1},FIREKEYS=['f','F','x','X','Enter','ArrowUp','w','W'];
@@ -2610,6 +2632,7 @@ addEventListener('keydown',e=>{
   if(KEYS[e.key]){held.add(e.key);input.key=KEYS[e.key];e.preventDefault();}
   if(e.key===' '||e.key==='ArrowDown'||e.key==='s'||e.key==='S'){input.dropKey=true;e.preventDefault();}
   if(FIREKEYS.includes(e.key)){input.fireKey=true;e.preventDefault();}
+  if(e.key==='r'||e.key==='R')input.reload=true;
 });
 addEventListener('keyup',e=>{
   if(KEYS[e.key]){held.delete(e.key);const last=[...held].pop();input.key=last?KEYS[last]:0;}
@@ -2633,18 +2656,19 @@ const touchy=()=>{document.body.classList.add('touch');if(G.state==='title')$('h
 if((window.matchMedia&&matchMedia('(pointer:coarse)').matches)||navigator.maxTouchPoints>0)touchy();
 addEventListener('touchstart',touchy,{once:true,passive:true});
 // stop long-press text selection, the copy bubble, and double-tap or pinch zoom; real buttons still get their taps
-const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#demo,#tourx,#mute,#mapb,#map,#folkb,#roster'))e.preventDefault();};
+const quiet=e=>{const t=e.target.closest?e.target:e.target.parentElement;if(!t||!t.closest('#go,#cont,#demo,#tourx,#mute,#mapb,#map,#folkb,#roster,#ammo'))e.preventDefault();};
 for(const ev of ['touchstart','touchmove','touchend','gesturestart','selectstart','dblclick'])document.addEventListener(ev,quiet,{passive:false});
 // physical controller: left stick or d-pad rides, A / X or right trigger tosses, B / Y or right bumper fires, A or Start begins
 let padWas=false;
 function pollPad(){
   const gp=navigator.getGamepads?[...navigator.getGamepads()].find(g=>g&&g.connected):null,on=i=>!!(gp&&gp.buttons[i]&&gp.buttons[i].pressed);
-  input.padAxis=gp&&Math.abs(gp.axes[0])>.25?gp.axes[0]:0;input.dpad=on(15)-on(14);input.padDrop=[0,2,7].some(on);input.padFire=[1,3,5].some(on);
+  input.padAxis=gp&&Math.abs(gp.axes[0])>.25?gp.axes[0]:0;input.dpad=on(15)-on(14);input.padDrop=[0,2,7].some(on);input.padFire=[1,3,5].some(on);if(on(4))input.reload=true;
   const go=on(0)||on(9);if(go&&!padWas){if(G.state==='intro')endIntro(true);else if(G.state!=='play')start();}padWas=go;
 }
 addEventListener('gamepadconnected',()=>{if(G.state==='title')$('how').textContent='Controller: stick or d-pad to ride, A to toss a coin, B to fire.';});
 $('mapb').addEventListener('click',()=>{$('mapb').blur();if(G.state==='play'&&!G.trip)showMap();});
 $('map').addEventListener('click',()=>{if(!mapBusy)hideMap();});
+$('ammo').addEventListener('click',()=>{$('ammo').blur();input.reload=true;});
 $('folkb').addEventListener('click',()=>{$('folkb').blur();if(G.state==='play'&&!G.trip&&!TOUR)showRoster();});
 $('roster').addEventListener('click',e=>{const bt=e.target.closest('button');if(!bt)hideRoster();else if(bt.dataset.role)release(bt.dataset.role);else hideRoster();});
 $('mute').addEventListener('click',()=>{muted=!muted;$('mute').textContent=muted?'Sound off':'Sound on';$('mute').classList.toggle('off',muted);$('mute').blur();});
